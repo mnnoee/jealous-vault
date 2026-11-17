@@ -45,6 +45,8 @@ var blockedEnvKeys = map[string]bool{
 	// The repository comes from repository.url, so an env override would
 	// silently redirect a backup somewhere else.
 	"RESTIC_REPOSITORY": true,
+	// Use repository.password_file instead of a second password source.
+	"RESTIC_PASSWORD_FILE": true,
 }
 
 // ValidateEnvKey accepts only variables that configure restic or its storage

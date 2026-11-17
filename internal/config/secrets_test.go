@@ -39,6 +39,7 @@ func TestValidateEnvKey(t *testing.T) {
 		"SSH_ASKPASS",
 		"RESTIC_PASSWORD_COMMAND",
 		"RESTIC_REPOSITORY",
+		"RESTIC_PASSWORD_FILE",
 		"GODEBUG",
 	}
 	for _, key := range blocked {

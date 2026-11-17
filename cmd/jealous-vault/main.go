@@ -1036,11 +1036,19 @@ func cmdRepoPasswd(ctx context.Context, args []string) error {
 		return fmt.Errorf("add new key: %w", err)
 	}
 
+	verifyEnv := make(map[string]string, len(cfg.Repository.Env))
+	for key, value := range cfg.Repository.Env {
+		switch key {
+		case "RESTIC_PASSWORD", "RESTIC_PASSWORD_FILE", "RESTIC_PASSWORD_COMMAND":
+			continue
+		}
+		verifyEnv[key] = value
+	}
 	verify := restic.New(restic.Options{
 		Binary:       cfg.ResticBinary,
 		Repository:   cfg.Repository.URL,
 		PasswordFile: *newPassword,
-		Env:          cfg.Repository.Env,
+		Env:          verifyEnv,
 		Extra:        cfg.ResticExtraOptions(),
 		Logger:       log,
 		Output:       io.Discard,
