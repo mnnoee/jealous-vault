@@ -66,7 +66,7 @@ func New(o Options) *Manager {
 
 // Dump creates one vzdump archive and returns its path.
 func (m *Manager) Dump(ctx context.Context, id int) (string, error) {
-	if err := os.MkdirAll(m.opts.DumpDir, 0o750); err != nil {
+	if err := os.MkdirAll(m.opts.DumpDir, 0o755); err != nil {
 		return "", err
 	}
 	beforePaths, err := archives(m.opts.DumpDir)
