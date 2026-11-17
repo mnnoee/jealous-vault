@@ -529,6 +529,7 @@ func cmdBackup(ctx context.Context, args []string) error {
 	fs := newFlagSet("backup")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	asJSON := fs.Bool("json", false, "print the run result as JSON")
+	dryRun := fs.Bool("dry-run", false, "show what would be backed up without writing")
 	noPrune := fs.Bool("no-prune", false, "skip repository pruning after retention")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
@@ -559,6 +560,22 @@ func cmdBackup(ctx context.Context, args []string) error {
 
 	log := newLogger(*verbose)
 	r := runner.New(cfg, log, os.Stderr)
+	if *dryRun {
+		summary, err := r.DryRun(ctx)
+		if *asJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if encErr := enc.Encode(summary); encErr != nil && err == nil {
+				err = encErr
+			}
+			return err
+		}
+		fmt.Println("backup dry-run")
+		fmt.Printf("  files:    %d new, %d changed\n", summary.FilesNew, summary.FilesChanged)
+		fmt.Printf("  added:    %s\n", humanBytes(summary.DataAdded))
+		fmt.Printf("  scanned:  %s\n", humanBytes(summary.TotalBytesProcessed))
+		return err
+	}
 	run, err := r.Backup(ctx)
 
 	if *asJSON {
@@ -1108,7 +1125,9 @@ func cmdRestore(ctx context.Context, args []string) error {
 	target := stringFlag(fs, "target", "/", "directory to restore into")
 	overwrite := stringFlag(fs, "overwrite", restore.OverwriteAlways, "always, never or if-changed")
 	verify := fs.Bool("verify", false, "verify restored files against the repository")
+	estimate := fs.Bool("estimate", false, "print the restore size without writing anything")
 	yes := fs.Bool("yes", false, "confirm a restore into /")
+	asJSON := fs.Bool("json", false, "print the estimate as JSON")
 	var includes stringList
 	fs.Var(&includes, "include", "path inside the snapshot to restore, repeatable")
 	verbose := fs.Bool("verbose", false, "debug logging")
@@ -1119,12 +1138,6 @@ func cmdRestore(ctx context.Context, args []string) error {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
 
-	plan, err := restore.New(*snapshot, *target, includes, *overwrite)
-	if err != nil {
-		return err
-	}
-	plan.Verify = *verify
-
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		return err
@@ -1132,6 +1145,44 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if err := prepare(cfg); err != nil {
 		return err
 	}
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
+
+	if *estimate {
+		snapshots, err := client.Snapshots(ctx, "")
+		if err != nil {
+			return err
+		}
+		snapshotInfo, err := resolveSnapshot(snapshots, *snapshot, cfg.Host)
+		if err != nil {
+			return err
+		}
+		stats, err := client.StatsFor(ctx, snapshotInfo.ID, "restore-size")
+		if err != nil {
+			return err
+		}
+		out := struct {
+			Snapshot string `json:"snapshot"`
+			Files    int64  `json:"files"`
+			Bytes    int64  `json:"bytes"`
+		}{Snapshot: snapshotInfo.ID, Files: stats.TotalFileCount, Bytes: stats.TotalSize}
+		if *asJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(out)
+		}
+		fmt.Printf("snapshot: %s\n", snapshotInfo.ShortID)
+		fmt.Printf("files:    %d\n", stats.TotalFileCount)
+		fmt.Printf("size:     %s\n", humanBytes(stats.TotalSize))
+		return nil
+	}
+
+	plan, err := restore.New(*snapshot, *target, includes, *overwrite)
+	if err != nil {
+		return err
+	}
+	plan.Verify = *verify
+
 	runLock, busy, err := acquireRunLock(cfg, "restore")
 	if err != nil {
 		return err
@@ -1147,7 +1198,6 @@ func cmdRestore(ctx context.Context, args []string) error {
 	}
 	fmt.Println("restoring")
 
-	log := newLogger(*verbose)
 	if err := executeRestore(ctx, cfg, plan, log, "restore"); err != nil {
 		return err
 	}
