@@ -63,10 +63,37 @@ func New(snapshot, target string, includes []string, overwrite string) (*Plan, e
 	}, nil
 }
 
-// Dangerous reports a restore that writes a whole snapshot over the running
-// system. Such a run needs an explicit confirmation.
-func (p *Plan) Dangerous() bool {
-	return p.Target == "/" && len(p.Includes) == 0
+// systemDirs are the top-level directories whose contents make up a running
+// system. Writing a snapshot into them is never a routine restore.
+var systemDirs = map[string]bool{
+	"etc": true, "boot": true, "root": true, "usr": true,
+	"bin": true, "sbin": true, "lib": true, "lib32": true,
+	"lib64": true, "libx32": true, "var": true, "home": true,
+	"opt": true, "srv": true, "proc": true, "sys": true,
+	"dev": true, "run": true,
+}
+
+// Dangerous reports a restore that writes into a system location. safeRoots
+// are directories owned by the agent where an automatic test restore is
+// expected, for example /var/lib/jealous-vault/verify.
+func (p *Plan) Dangerous(safeRoots ...string) bool {
+	if p.Target == "/" && len(p.Includes) == 0 {
+		return true
+	}
+	if len(p.Includes) > 0 {
+		return false
+	}
+	for _, root := range safeRoots {
+		if root == "" {
+			continue
+		}
+		root = filepath.Clean(root)
+		if p.Target == root || strings.HasPrefix(p.Target, root+string(filepath.Separator)) {
+			return false
+		}
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(p.Target, string(filepath.Separator)), string(filepath.Separator))
+	return systemDirs[first]
 }
 
 // Describe renders a short human readable summary.

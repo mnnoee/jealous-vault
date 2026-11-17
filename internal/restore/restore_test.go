@@ -56,6 +56,40 @@ func TestDangerousWithIncludes(t *testing.T) {
 	}
 }
 
+func TestDangerousSystemTargets(t *testing.T) {
+	for _, target := range []string{"/etc", "/etc/nginx", "/var/lib/app", "/boot", "/root"} {
+		plan, err := New("latest", target, nil, OverwriteAlways)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !plan.Dangerous() {
+			t.Errorf("restore into %s must require confirmation", target)
+		}
+	}
+	for _, target := range []string{"/data/restore", "/tmp/restore", "/mnt/backup"} {
+		plan, err := New("latest", target, nil, OverwriteAlways)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if plan.Dangerous() {
+			t.Errorf("restore into %s must not require confirmation", target)
+		}
+	}
+}
+
+func TestDangerousSafeRoot(t *testing.T) {
+	plan, err := New("latest", "/var/lib/jealous-vault/verify/20260101-000000", nil, OverwriteAlways)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Dangerous("/var/lib/jealous-vault/verify") {
+		t.Fatal("the automatic verify directory must be treated as safe")
+	}
+	if !plan.Dangerous() {
+		t.Fatal("without a safe root the same target is a system path")
+	}
+}
+
 func TestDescribe(t *testing.T) {
 	plan, err := New("abc", "/srv/restore", []string{"/etc"}, OverwriteAlways)
 	if err != nil {
