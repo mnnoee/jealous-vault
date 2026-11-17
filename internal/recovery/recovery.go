@@ -39,9 +39,17 @@ func Write(cfg *config.Config, output string, force bool, version string) error 
 		return err
 	}
 
-	password, err := readSecret(cfg.Repository.PasswordFile)
-	if err != nil {
-		return fmt.Errorf("repository password: %w", err)
+	var password string
+	if cfg.Repository.PasswordFile != "" {
+		password, err = readSecret(cfg.Repository.PasswordFile)
+		if err != nil {
+			return fmt.Errorf("repository password: %w", err)
+		}
+	} else {
+		password = strings.TrimSpace(cfg.Repository.Env["RESTIC_PASSWORD"])
+		if password == "" {
+			return errors.New("no repository password file or RESTIC_PASSWORD to put in the kit")
+		}
 	}
 	envFile, err := readOptional(cfg.Repository.EnvFile)
 	if err != nil {
