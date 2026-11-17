@@ -225,6 +225,16 @@ post_hook = ""
 pre_hooks = []
 post_hooks = []
 
+# Named recipes: restore --recipe postgres --snapshot latest.
+# [restore.recipes.postgres]
+# service = "postgresql"
+# target = "/"
+# includes = ["/var/lib/postgresql", "/etc/postgresql"]
+# overwrite = "always"
+# verify = true
+# pre_hook = ""
+# post_hook = ""
+
 [notify]
 # Generic JSON webhooks: Slack, Mattermost, your own bot.
 webhooks = []

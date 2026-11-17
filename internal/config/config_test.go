@@ -621,3 +621,72 @@ compression = "gzip"
 		t.Fatalf("bad compression = %v", err)
 	}
 }
+
+func TestRestoreRecipes(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+
+[backup]
+paths = ["/etc"]
+
+[restore.recipes.postgres]
+service = "postgresql"
+target = "/"
+includes = ["/var/lib/postgresql", "/etc/postgresql"]
+overwrite = "always"
+verify = true
+pre_hook = ""
+post_hook = ""
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recipe, ok := cfg.Restore.Recipes["postgres"]
+	if !ok {
+		t.Fatal("recipe was not loaded")
+	}
+	if recipe.Service != "postgresql" || len(recipe.Includes) != 2 || !recipe.Verify {
+		t.Fatalf("recipe = %+v", recipe)
+	}
+
+	for name, body := range map[string]string{
+		"bad service": `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+[restore.recipes.x]
+service = "postgres; reboot"
+`,
+		"relative target": `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+[restore.recipes.x]
+target = "srv"
+`,
+		"bad name": `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+[restore.recipes.Bad]
+target = "/"
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			p := writeFile(t, t.TempDir(), "config.toml", body)
+			if _, err := Load(p); err == nil {
+				t.Fatal("expected an error")
+			}
+		})
+	}
+}

@@ -33,6 +33,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
+	"github.com/mnnoee/jealous-vault/internal/service"
 	"github.com/mnnoee/jealous-vault/internal/sftp"
 	"github.com/mnnoee/jealous-vault/internal/state"
 	"github.com/mnnoee/jealous-vault/internal/systemd"
@@ -1129,6 +1130,7 @@ func cmdRestore(ctx context.Context, args []string) error {
 	overwrite := stringFlag(fs, "overwrite", restore.OverwriteAlways, "always, never or if-changed")
 	verify := fs.Bool("verify", false, "verify restored files against the repository")
 	estimate := fs.Bool("estimate", false, "print the restore size without writing anything")
+	recipe := stringFlag(fs, "recipe", "", "named restore recipe from the config")
 	yes := fs.Bool("yes", false, "confirm a restore into /")
 	asJSON := fs.Bool("json", false, "print the estimate as JSON")
 	var includes stringList
@@ -1139,6 +1141,15 @@ func cmdRestore(ctx context.Context, args []string) error {
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	explicit := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { explicit[f.Name] = true })
+	if *recipe != "" {
+		for _, name := range []string{"target", "include", "overwrite", "verify"} {
+			if explicit[name] {
+				return fmt.Errorf("--recipe cannot be combined with --%s", name)
+			}
+		}
 	}
 
 	cfg, err := loadConfig(*configPath)
@@ -1180,11 +1191,35 @@ func cmdRestore(ctx context.Context, args []string) error {
 		return nil
 	}
 
-	plan, err := restore.New(*snapshot, *target, includes, *overwrite)
-	if err != nil {
-		return err
+	preHooks := append([]string(nil), cfg.Restore.PreHooks...)
+	postHooks := append([]string(nil), cfg.Restore.PostHooks...)
+	serviceName := ""
+
+	var plan *restore.Plan
+	if *recipe != "" {
+		selected, ok := cfg.Restore.Recipes[*recipe]
+		if !ok {
+			return fmt.Errorf("restore recipe %q is not configured", *recipe)
+		}
+		plan, err = restore.New(*snapshot, selected.Target, selected.Includes, selected.Overwrite)
+		if err != nil {
+			return err
+		}
+		plan.Verify = selected.Verify
+		if selected.PreHook != "" {
+			preHooks = append(preHooks, selected.PreHook)
+		}
+		if selected.PostHook != "" {
+			postHooks = append([]string{selected.PostHook}, postHooks...)
+		}
+		serviceName = selected.Service
+	} else {
+		plan, err = restore.New(*snapshot, *target, includes, *overwrite)
+		if err != nil {
+			return err
+		}
+		plan.Verify = *verify
 	}
-	plan.Verify = *verify
 
 	runLock, busy, err := acquireRunLock(cfg, "restore")
 	if err != nil {
@@ -1201,16 +1236,17 @@ func cmdRestore(ctx context.Context, args []string) error {
 	}
 	fmt.Println("restoring")
 
-	if err := executeRestore(ctx, cfg, plan, log, "restore"); err != nil {
+	if err := executeRestore(ctx, cfg, plan, log, "restore", preHooks, postHooks, serviceName); err != nil {
 		return err
 	}
 	fmt.Println("restore finished")
 	return nil
 }
 
-// executeRestore runs restore hooks around the plan, the same way a backup
-// runs its own hooks.
-func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan, log *slog.Logger, event string) error {
+// executeRestore runs restore hooks and an optional service stop/start around
+// the plan. A recipe can therefore stop PostgreSQL, restore the directory and
+// start PostgreSQL again without shelling out from the config.
+func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan, log *slog.Logger, event string, preHooks, postHooks []string, serviceName string) error {
 	env := map[string]string{
 		"JM_EVENT":    event,
 		"JM_HOST":     cfg.Host,
@@ -1219,11 +1255,25 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 		"JM_STATUS":   "running",
 		"JM_PHASE":    "pre",
 	}
-	if err := hooks.Run(ctx, log, event+"-pre", cfg.Restore.PreHooks, env); err != nil {
+	stopped := false
+	if serviceName != "" {
+		if err := service.Run(ctx, log, "stop", serviceName); err != nil {
+			return err
+		}
+		stopped = true
+	}
+	finish := func(cause error) error {
 		env["JM_PHASE"] = "post"
 		env["JM_STATUS"] = "failed"
-		_ = hooks.Run(ctx, log, event+"-post", cfg.Restore.PostHooks, env)
-		return err
+		hookErr := hooks.Run(ctx, log, event+"-post", postHooks, env)
+		var startErr error
+		if stopped {
+			startErr = service.Run(context.Background(), log, "start", serviceName)
+		}
+		return errors.Join(cause, hookErr, startErr)
+	}
+	if err := hooks.Run(ctx, log, event+"-pre", preHooks, env); err != nil {
+		return finish(err)
 	}
 
 	restoreErr := plan.Execute(ctx, resticClient(cfg, log))
@@ -1233,10 +1283,12 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 	}
 	env["JM_PHASE"] = "post"
 	env["JM_STATUS"] = status
-	if hookErr := hooks.Run(ctx, log, event+"-post", cfg.Restore.PostHooks, env); hookErr != nil {
-		return errors.Join(restoreErr, hookErr)
+	hookErr := hooks.Run(ctx, log, event+"-post", postHooks, env)
+	var startErr error
+	if stopped {
+		startErr = service.Run(context.Background(), log, "start", serviceName)
 	}
-	return restoreErr
+	return errors.Join(restoreErr, hookErr, startErr)
 }
 
 func cmdTestRestore(ctx context.Context, args []string) error {

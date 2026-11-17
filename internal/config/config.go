@@ -159,8 +159,20 @@ type Check struct {
 
 // Restore hooks run around a restore, for example to stop and start services.
 type Restore struct {
-	PreHooks  []string `toml:"pre_hooks"`
-	PostHooks []string `toml:"post_hooks"`
+	PreHooks  []string          `toml:"pre_hooks"`
+	PostHooks []string          `toml:"post_hooks"`
+	Recipes   map[string]Recipe `toml:"recipes"`
+}
+
+// Recipe is a named restore plan with optional service stop/start.
+type Recipe struct {
+	Service   string   `toml:"service"`
+	PreHook   string   `toml:"pre_hook"`
+	PostHook  string   `toml:"post_hook"`
+	Target    string   `toml:"target"`
+	Includes  []string `toml:"includes"`
+	Overwrite string   `toml:"overwrite"`
+	Verify    bool     `toml:"verify"`
 }
 
 // Notify lists outbound notification channels.
@@ -670,7 +682,52 @@ func (c *Config) Validate() error {
 		!strings.HasPrefix(c.Notify.FreshnessPingURL, "https://") {
 		return fmt.Errorf("notify.freshness_ping_url %q must be an http or https URL", c.Notify.FreshnessPingURL)
 	}
+	for name, recipe := range c.Restore.Recipes {
+		if !validRecipeName(name) {
+			return fmt.Errorf("restore.recipes: name %q must match [a-z0-9][a-z0-9_-]*", name)
+		}
+		if recipe.Target != "" && !filepath.IsAbs(recipe.Target) {
+			return fmt.Errorf("restore.recipes.%s.target %q must be absolute", name, recipe.Target)
+		}
+		for i, include := range recipe.Includes {
+			if !filepath.IsAbs(include) {
+				return fmt.Errorf("restore.recipes.%s.includes[%d] %q must be absolute", name, i, include)
+			}
+		}
+		switch recipe.Overwrite {
+		case "", "always", "never", "if-changed":
+		default:
+			return fmt.Errorf("restore.recipes.%s.overwrite %q must be always, never or if-changed", name, recipe.Overwrite)
+		}
+		if recipe.Service != "" && !validServiceName(recipe.Service) {
+			return fmt.Errorf("restore.recipes.%s.service %q contains invalid characters", name, recipe.Service)
+		}
+	}
 	return nil
+}
+
+func validRecipeName(name string) bool {
+	if name == "" || !(name[0] >= 'a' && name[0] <= 'z') && !(name[0] >= '0' && name[0] <= '9') {
+		return false
+	}
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func validServiceName(name string) bool {
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+			r == '@' || r == '_' || r == '.' || r == ':' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func parseDuration(key, value string) (time.Duration, error) {
