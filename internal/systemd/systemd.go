@@ -41,6 +41,7 @@ const checkCalendar = "Sun *-*-* 04:30:00"
 type Installer struct {
 	BinaryPath  string
 	ConfigPath  string
+	Job         string
 	UnitDir     string
 	Systemctl   string
 	Init        string
@@ -50,6 +51,75 @@ type Installer struct {
 	SkipStart   bool
 	Out         io.Writer
 	Log         *slog.Logger
+}
+
+type unitNames struct {
+	backupService    string
+	backupTimer      string
+	checkService     string
+	checkTimer       string
+	freshnessService string
+	freshnessTimer   string
+	verifyService    string
+	verifyTimer      string
+	proxmoxService   string
+	proxmoxTimer     string
+	copyService      string
+	copyTimer        string
+}
+
+func jobSuffix(job string) string {
+	if job == "" || job == "default" {
+		return ""
+	}
+	return "-" + job
+}
+
+func unitName(base, job, suffix string) string {
+	return "jealous-vault-" + base + jobSuffix(job) + suffix
+}
+
+func periodicName(base, job string) string {
+	return "jealous-vault-" + base + jobSuffix(job)
+}
+
+// PeriodicName returns the OpenRC script name for one job.
+func PeriodicName(base, job string) string { return periodicName(base, job) }
+
+// BackupTimerName returns the timer unit for one job.
+func BackupTimerName(job string) string { return unitName("backup", job, ".timer") }
+
+// CheckTimerName returns the check timer unit for one job.
+func CheckTimerName(job string) string { return unitName("check", job, ".timer") }
+
+// FreshnessTimerName returns the freshness timer unit for one job.
+func FreshnessTimerName(job string) string { return unitName("freshness", job, ".timer") }
+
+// VerifyTimerName returns the verify timer unit for one job.
+func VerifyTimerName(job string) string { return unitName("verify", job, ".timer") }
+
+// ProxmoxTimerName returns the Proxmox timer unit for one job.
+func ProxmoxTimerName(job string) string { return unitName("proxmox", job, ".timer") }
+
+// CopyTimerName returns the copy timer unit for one job.
+func CopyTimerName(job string) string { return unitName("copy", job, ".timer") }
+
+func (i *Installer) names() unitNames {
+	job := i.Job
+	return unitNames{
+		backupService:    unitName("backup", job, ".service"),
+		backupTimer:      unitName("backup", job, ".timer"),
+		checkService:     unitName("check", job, ".service"),
+		checkTimer:       unitName("check", job, ".timer"),
+		freshnessService: unitName("freshness", job, ".service"),
+		freshnessTimer:   unitName("freshness", job, ".timer"),
+		verifyService:    unitName("verify", job, ".service"),
+		verifyTimer:      unitName("verify", job, ".timer"),
+		proxmoxService:   unitName("proxmox", job, ".service"),
+		proxmoxTimer:     unitName("proxmox", job, ".timer"),
+		copyService:      unitName("copy", job, ".service"),
+		copyTimer:        unitName("copy", job, ".timer"),
+	}
 }
 
 // Install copies the binary, writes the units and starts the timers.
@@ -78,19 +148,20 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		return errors.New("neither systemctl nor rc-update found, cannot install services")
 	}
 
+	n := i.names()
 	units := map[string]string{
-		BackupService:    hardened(backupService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
-		BackupTimer:      backupTimer(cfg.Schedule.OnCalendar, cfg.Schedule.RandomizedDelay),
-		CheckService:     hardened(checkService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
-		CheckTimer:       checkTimer(),
-		FreshnessService: hardened(freshnessService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
-		FreshnessTimer:   freshnessTimer(cfg.Freshness.Schedule),
+		n.backupService:    hardened(backupService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
+		n.backupTimer:      backupTimer(cfg.Schedule.OnCalendar, cfg.Schedule.RandomizedDelay, n.backupService),
+		n.checkService:     hardened(checkService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
+		n.checkTimer:       checkTimer(n.checkService),
+		n.freshnessService: hardened(freshnessService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
+		n.freshnessTimer:   freshnessTimer(cfg.Freshness.Schedule, n.freshnessService),
 	}
 	if cfg.Verify.Enabled {
-		units[VerifyService] = hardened(verifyService(i.BinaryPath, i.ConfigPath), "")
-		units[VerifyTimer] = verifyTimer(cfg.Verify.Schedule)
+		units[n.verifyService] = hardened(verifyService(i.BinaryPath, i.ConfigPath), "")
+		units[n.verifyTimer] = verifyTimer(cfg.Verify.Schedule, n.verifyService)
 	} else {
-		for _, name := range []string{VerifyTimer, VerifyService} {
+		for _, name := range []string{n.verifyTimer, n.verifyService} {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
@@ -98,18 +169,18 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
 		}
-		units[ProxmoxService] = hardened(proxmoxService(i.BinaryPath, i.ConfigPath), "")
-		units[ProxmoxTimer] = proxmoxTimer(cfg.Proxmox.Schedule)
+		units[n.proxmoxService] = hardened(proxmoxService(i.BinaryPath, i.ConfigPath), "")
+		units[n.proxmoxTimer] = proxmoxTimer(cfg.Proxmox.Schedule, n.proxmoxService)
 	} else {
-		for _, name := range []string{ProxmoxTimer, ProxmoxService} {
+		for _, name := range []string{n.proxmoxTimer, n.proxmoxService} {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
 	if cfg.Copy.Enabled {
-		units[CopyService] = hardened(copyService(i.BinaryPath, i.ConfigPath), "UMask=0077\n")
-		units[CopyTimer] = copyTimer(cfg.Copy.Schedule)
+		units[n.copyService] = hardened(copyService(i.BinaryPath, i.ConfigPath), "UMask=0077\n")
+		units[n.copyTimer] = copyTimer(cfg.Copy.Schedule, n.copyService)
 	} else {
-		for _, name := range []string{CopyTimer, CopyService} {
+		for _, name := range []string{n.copyTimer, n.copyService} {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
@@ -127,15 +198,15 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		fmt.Fprintln(out, "timers written but not started (--no-start)")
 		return nil
 	}
-	timers := []string{BackupTimer, CheckTimer, FreshnessTimer}
+	timers := []string{n.backupTimer, n.checkTimer, n.freshnessTimer}
 	if cfg.Verify.Enabled {
-		timers = append(timers, VerifyTimer)
+		timers = append(timers, n.verifyTimer)
 	}
 	if cfg.Proxmox.Enabled {
-		timers = append(timers, ProxmoxTimer)
+		timers = append(timers, n.proxmoxTimer)
 	}
 	if cfg.Copy.Enabled {
-		timers = append(timers, CopyTimer)
+		timers = append(timers, n.copyTimer)
 	}
 	if err := i.systemctl(ctx, append([]string{"enable", "--now"}, timers...)...); err != nil {
 		return err
@@ -156,6 +227,7 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 		return i.uninstallOpenRC(out)
 	}
 
+	n := i.names()
 	timers := i.installedTimers()
 	var errs []error
 	if len(timers) > 0 {
@@ -164,12 +236,12 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 		}
 	}
 	for _, name := range []string{
-		BackupTimer, BackupService,
-		CheckTimer, CheckService,
-		FreshnessTimer, FreshnessService,
-		VerifyTimer, VerifyService,
-		ProxmoxTimer, ProxmoxService,
-		CopyTimer, CopyService,
+		n.backupTimer, n.backupService,
+		n.checkTimer, n.checkService,
+		n.freshnessTimer, n.freshnessService,
+		n.verifyTimer, n.verifyService,
+		n.proxmoxTimer, n.proxmoxService,
+		n.copyTimer, n.copyService,
 	} {
 		path := filepath.Join(i.UnitDir, name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -186,22 +258,28 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 }
 
 func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out io.Writer) error {
+	backupName := periodicName("backup", i.Job)
+	checkName := periodicName("check", i.Job)
+	freshnessName := periodicName("freshness", i.Job)
+	verifyName := periodicName("verify", i.Job)
+	proxmoxName := periodicName("proxmox", i.Job)
+	copyName := periodicName("copy", i.Job)
 	scripts := map[string]string{
-		filepath.Join(i.PeriodicDir, "daily", "jealous-vault-backup"):    periodicScript(i.BinaryPath, "backup", i.ConfigPath),
-		filepath.Join(i.PeriodicDir, "weekly", "jealous-vault-check"):    periodicScript(i.BinaryPath, "check", i.ConfigPath),
-		filepath.Join(i.PeriodicDir, "daily", "jealous-vault-freshness"): periodicScript(i.BinaryPath, "freshness", i.ConfigPath),
+		filepath.Join(i.PeriodicDir, "daily", backupName):    periodicScript(i.BinaryPath, "backup", i.ConfigPath),
+		filepath.Join(i.PeriodicDir, "weekly", checkName):    periodicScript(i.BinaryPath, "check", i.ConfigPath),
+		filepath.Join(i.PeriodicDir, "daily", freshnessName): periodicScript(i.BinaryPath, "freshness", i.ConfigPath),
 	}
 	if cfg.Verify.Enabled {
-		scripts[filepath.Join(i.PeriodicDir, "weekly", "jealous-vault-verify")] = periodicScript(i.BinaryPath, "test-restore", i.ConfigPath)
+		scripts[filepath.Join(i.PeriodicDir, "weekly", verifyName)] = periodicScript(i.BinaryPath, "test-restore", i.ConfigPath)
 	}
 	if cfg.Proxmox.Enabled {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
 		}
-		scripts[filepath.Join(i.PeriodicDir, "daily", "jealous-vault-proxmox")] = periodicScript(i.BinaryPath, "vzdump", i.ConfigPath)
+		scripts[filepath.Join(i.PeriodicDir, "daily", proxmoxName)] = periodicScript(i.BinaryPath, "vzdump", i.ConfigPath)
 	}
 	if cfg.Copy.Enabled {
-		scripts[filepath.Join(i.PeriodicDir, "daily", "jealous-vault-copy")] = periodicScript(i.BinaryPath, "repo copy", i.ConfigPath)
+		scripts[filepath.Join(i.PeriodicDir, "daily", copyName)] = periodicScript(i.BinaryPath, "repo copy", i.ConfigPath)
 	}
 	for path, body := range scripts {
 		if err := writeFile(path, []byte(body)); err != nil {
@@ -212,7 +290,7 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 		}
 		fmt.Fprintf(out, "wrote %s\n", path)
 	}
-	for _, name := range []string{"jealous-vault-verify", "jealous-vault-proxmox", "jealous-vault-copy"} {
+	for _, name := range []string{verifyName, proxmoxName, copyName} {
 		if _, ok := scripts[filepath.Join(i.PeriodicDir, "daily", name)]; ok {
 			continue
 		}
@@ -237,11 +315,12 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 }
 
 func (i *Installer) uninstallOpenRC(out io.Writer) error {
+	names := []string{
+		periodicName("backup", i.Job), periodicName("check", i.Job), periodicName("freshness", i.Job),
+		periodicName("verify", i.Job), periodicName("proxmox", i.Job), periodicName("copy", i.Job),
+	}
 	for _, period := range []string{"daily", "weekly"} {
-		for _, name := range []string{
-			"jealous-vault-backup", "jealous-vault-check", "jealous-vault-freshness",
-			"jealous-vault-verify", "jealous-vault-proxmox", "jealous-vault-copy",
-		} {
+		for _, name := range names {
 			path := filepath.Join(i.PeriodicDir, period, name)
 			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 				return err
@@ -274,8 +353,9 @@ func shellQuote(s string) string {
 }
 
 func (i *Installer) installedTimers() []string {
+	n := i.names()
 	var timers []string
-	for _, name := range []string{BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer, ProxmoxTimer, CopyTimer} {
+	for _, name := range []string{n.backupTimer, n.checkTimer, n.freshnessTimer, n.verifyTimer, n.proxmoxTimer, n.copyTimer} {
 		if _, err := os.Stat(filepath.Join(i.UnitDir, name)); err == nil {
 			timers = append(timers, name)
 		}
@@ -442,7 +522,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func backupTimer(onCalendar, randomizedDelay string) string {
+func backupTimer(onCalendar, randomizedDelay, service string) string {
 	if randomizedDelay == "" {
 		randomizedDelay = "15m"
 	}
@@ -458,7 +538,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, onCalendar, randomizedDelay, BackupService)
+`, onCalendar, randomizedDelay, service)
 }
 
 func checkService(binary, configPath string) string {
@@ -478,7 +558,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func checkTimer() string {
+func checkTimer(service string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault repository check timer
 
@@ -491,7 +571,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, checkCalendar, CheckService)
+`, checkCalendar, service)
 }
 
 func freshnessService(binary, configPath string) string {
@@ -511,7 +591,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func freshnessTimer(schedule string) string {
+func freshnessTimer(schedule, service string) string {
 	if schedule == "" {
 		schedule = "*-*-* 00,06,12,18:15:00"
 	}
@@ -526,7 +606,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, schedule, FreshnessService)
+`, schedule, service)
 }
 
 func verifyService(binary, configPath string) string {
@@ -546,7 +626,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func verifyTimer(schedule string) string {
+func verifyTimer(schedule, service string) string {
 	if schedule == "" {
 		schedule = "Sun *-*-* 05:00:00"
 	}
@@ -562,7 +642,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, schedule, VerifyService)
+`, schedule, service)
 }
 
 func proxmoxService(binary, configPath string) string {
@@ -582,7 +662,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func proxmoxTimer(schedule string) string {
+func proxmoxTimer(schedule, service string) string {
 	if schedule == "" {
 		schedule = "*-*-* 02:00:00"
 	}
@@ -598,7 +678,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, schedule, ProxmoxService)
+`, schedule, service)
 }
 
 func copyService(binary, configPath string) string {
@@ -618,7 +698,7 @@ IOSchedulingPriority=7
 `, quoteArg(binary), quoteArg(configPath))
 }
 
-func copyTimer(schedule string) string {
+func copyTimer(schedule, service string) string {
 	if schedule == "" {
 		schedule = "*-*-* 05:00:00"
 	}
@@ -634,7 +714,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, schedule, CopyService)
+`, schedule, service)
 }
 
 func quoteArg(s string) string {

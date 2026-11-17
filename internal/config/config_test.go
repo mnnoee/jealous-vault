@@ -690,3 +690,41 @@ target = "/"
 		})
 	}
 }
+
+func TestJobPaths(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+job = "web"
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantState := filepath.Join(filepath.Dir(DefaultStateFile), "web", "state.json")
+	if cfg.StateFile != wantState {
+		t.Errorf("state = %q, want %q", cfg.StateFile, wantState)
+	}
+	if cfg.HistoryFile != filepath.Join(filepath.Dir(wantState), "history.jsonl") {
+		t.Errorf("history = %q", cfg.HistoryFile)
+	}
+	if cfg.LockFile != filepath.Join(filepath.Dir(wantState), "backup.lock") {
+		t.Errorf("lock = %q", cfg.LockFile)
+	}
+
+	bad := writeFile(t, dir, "bad.toml", `
+job = "Web Job"
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+`)
+	if _, err := Load(bad); err == nil || !strings.Contains(err.Error(), "job") {
+		t.Fatalf("bad job = %v", err)
+	}
+}

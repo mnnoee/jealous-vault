@@ -226,12 +226,13 @@ func cmdInit(ctx context.Context, args []string) error {
 	fs := newFlagSet("init")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file to write")
 	host := stringFlag(fs, "host", "", "host name recorded in snapshots, defaults to the system hostname")
+	job := stringFlag(fs, "job", "default", "job name, used in unit and state paths")
 	repoURL := stringFlag(fs, "repo", "", "restic repository URL")
 	paths := stringFlag(fs, "paths", "", "comma separated absolute paths to back up")
 	excludes := stringFlag(fs, "excludes", "", "comma separated exclude patterns")
 	profile := stringFlag(fs, "profile", "host", "backup profile: host, vm-dumps or custom")
 	passwordFile := stringFlag(fs, "password-file", "", "file that will hold the repository password")
-	stateFile := stringFlag(fs, "state-file", config.DefaultStateFile, "file that will hold the last run state")
+	stateFile := stringFlag(fs, "state-file", "", "file that will hold the last run state, defaults per job")
 	sftpKey := stringFlag(fs, "sftp-key", "", "private key for sftp repositories")
 	sftpKnownHosts := stringFlag(fs, "sftp-known-hosts", "", "known_hosts file for sftp repositories")
 	proxmox := fs.Bool("proxmox", false, "enable the Proxmox vzdump timer")
@@ -255,6 +256,7 @@ func cmdInit(ctx context.Context, args []string) error {
 
 	pwPath, err := writeInitialConfig(*configPath, config.InitOptions{
 		Host:           *host,
+		Job:            *job,
 		RepositoryURL:  *repoURL,
 		PasswordFile:   *passwordFile,
 		StateFile:      *stateFile,
@@ -443,9 +445,6 @@ func writeInitialConfig(path string, opts config.InitOptions, force bool) (strin
 		}
 		opts.PasswordFile = passwordPath
 	}
-	if opts.StateFile == "" {
-		opts.StateFile = config.DefaultStateFile
-	}
 	if err := config.WriteExample(path, opts, force); err != nil {
 		return "", err
 	}
@@ -498,6 +497,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	installer := &systemd.Installer{
 		BinaryPath: filepath.Join(*prefix, "jealous-vault"),
 		ConfigPath: *configPath,
+		Job:        cfg.Job,
 		SkipStart:  *noStart,
 		Out:        os.Stdout,
 		Log:        log,
@@ -522,16 +522,25 @@ func cmdUninstall(ctx context.Context, args []string) error {
 	fs := newFlagSet("uninstall")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	prefix := stringFlag(fs, "prefix", "/usr/local/bin", "directory of the binary")
+	job := stringFlag(fs, "job", "", "job name, defaults to the config value")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
 	}
+	if *job == "" {
+		if cfg, err := config.Load(*configPath); err == nil {
+			*job = cfg.Job
+		} else {
+			*job = "default"
+		}
+	}
 
 	installer := &systemd.Installer{
 		BinaryPath: filepath.Join(*prefix, "jealous-vault"),
 		ConfigPath: *configPath,
+		Job:        *job,
 		Out:        os.Stdout,
 	}
 	return installer.Uninstall(ctx)
@@ -1791,6 +1800,7 @@ func cmdFreshness(ctx context.Context, args []string) error {
 	result := freshness.Check(ctx, st, freshness.Options{
 		MaxAge:             *maxAge,
 		RespectBackupTimer: cfg.Freshness.RespectBackupTimer,
+		Unit:               systemd.BackupTimerName(cfg.Job),
 	})
 
 	status := "success"
@@ -1906,6 +1916,7 @@ func cmdStatus(args []string) error {
 		}
 	} else {
 		fmt.Printf("host:        %s\n", cfg.Host)
+		fmt.Printf("job:         %s\n", cfg.Job)
 		fmt.Printf("repository:  %s\n", cfg.RedactedRepository())
 		switch {
 		case running && runInfo.PID != 0:

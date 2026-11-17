@@ -32,6 +32,7 @@ const (
 // TOML file reads naturally, and are parsed into time.Duration fields.
 type Config struct {
 	Host         string    `toml:"host"`
+	Job          string    `toml:"job"`
 	StateFile    string    `toml:"state_file"`
 	HistoryFile  string    `toml:"history_file"`
 	LockFile     string    `toml:"lock_file"`
@@ -208,6 +209,7 @@ func Default() *Config {
 	host, _ := os.Hostname()
 	return &Config{
 		Host:         host,
+		Job:          "default",
 		StateFile:    DefaultStateFile,
 		ResticBinary: DefaultResticBinary,
 		Retention: Retention{
@@ -302,6 +304,15 @@ func (c *Config) finish() error {
 			return fmt.Errorf("host is empty and hostname is unavailable: %w", err)
 		}
 		c.Host = host
+	}
+	if c.Job == "" {
+		c.Job = "default"
+	}
+	if !validJobName(c.Job) {
+		return fmt.Errorf("job %q must match [a-z0-9][a-z0-9_-]*", c.Job)
+	}
+	if c.Job != "default" && c.StateFile == DefaultStateFile {
+		c.StateFile = filepath.Join(filepath.Dir(DefaultStateFile), c.Job, "state.json")
 	}
 	if c.StateFile == "" {
 		c.StateFile = DefaultStateFile
@@ -717,6 +728,10 @@ func validRecipeName(name string) bool {
 		return false
 	}
 	return true
+}
+
+func validJobName(name string) bool {
+	return validRecipeName(name)
 }
 
 func validServiceName(name string) bool {

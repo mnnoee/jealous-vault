@@ -18,6 +18,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
+	"github.com/mnnoee/jealous-vault/internal/systemd"
 )
 
 // Level is the outcome of one check.
@@ -90,7 +91,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkBackupSecrets(cfg, add)
 	stateDir := checkStateDir(cfg, add)
 	checkFreeSpace(stateDir, add)
-	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, add)
+	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, cfg.Job, add)
 	checkS3Credentials(cfg, add)
 	checkEmail(ctx, cfg, add)
 	checkRetention(cfg, add)
@@ -279,13 +280,13 @@ func checkFreeSpace(dir string, add func(string, Level, string)) {
 	add("disk", LevelOK, humanBytes(free)+" free")
 }
 
-func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add func(string, Level, string)) {
+func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, job string, add func(string, Level, string)) {
 	if systemctl == "" {
 		systemctl = "systemctl"
 	}
 	if _, err := exec.LookPath(systemctl); err != nil {
 		if _, rcErr := exec.LookPath("rc-update"); rcErr == nil {
-			checkOpenRC(ctx, add)
+			checkOpenRC(ctx, job, add)
 			return
 		}
 		add("systemd", LevelWarn, "systemctl not found, timers not checked")
@@ -294,12 +295,12 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add
 
 	var problems []string
 	timers := []string{
-		"jealous-vault-backup.timer",
-		"jealous-vault-check.timer",
-		"jealous-vault-freshness.timer",
+		systemd.BackupTimerName(job),
+		systemd.CheckTimerName(job),
+		systemd.FreshnessTimerName(job),
 	}
 	if verifyEnabled {
-		timers = append(timers, "jealous-vault-verify.timer")
+		timers = append(timers, systemd.VerifyTimerName(job))
 	}
 	for _, timer := range timers {
 		if err := systemctlRun(ctx, systemctl, "is-enabled", timer); err != nil {
@@ -317,11 +318,11 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add
 	add("systemd", LevelOK, "configured timers are enabled and active")
 }
 
-func checkOpenRC(ctx context.Context, add func(string, Level, string)) {
+func checkOpenRC(ctx context.Context, job string, add func(string, Level, string)) {
 	var missing []string
 	for _, path := range []string{
-		"/etc/periodic/daily/jealous-vault-backup",
-		"/etc/periodic/weekly/jealous-vault-check",
+		filepath.Join("/etc/periodic/daily", systemd.PeriodicName("backup", job)),
+		filepath.Join("/etc/periodic/weekly", systemd.PeriodicName("check", job)),
 	} {
 		if _, err := os.Stat(path); err != nil {
 			missing = append(missing, path)

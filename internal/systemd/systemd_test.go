@@ -296,3 +296,45 @@ func TestInstallOpenRC(t *testing.T) {
 		t.Fatal("periodic backup script was not removed")
 	}
 }
+
+func TestInstallNamedJob(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "units")
+	systemctl, logFile := fakeSystemctl(t, dir)
+
+	cfg := config.Default()
+	cfg.Job = "web"
+	cfg.StateFile = filepath.Join(dir, "state", "web", "state.json")
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		Job:        "web",
+		UnitDir:    units,
+		Systemctl:  systemctl,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"jealous-vault-backup-web.service",
+		"jealous-vault-backup-web.timer",
+		"jealous-vault-check-web.timer",
+		"jealous-vault-freshness-web.timer",
+		"jealous-vault-verify-web.timer",
+	} {
+		if _, err := os.Stat(filepath.Join(units, name)); err != nil {
+			t.Errorf("%s missing: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(units, BackupService)); !os.IsNotExist(err) {
+		t.Error("default backup unit must not be written for a named job")
+	}
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), "jealous-vault-backup-web.timer") {
+		t.Errorf("named timer was not enabled:\n%s", log)
+	}
+}
