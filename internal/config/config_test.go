@@ -129,6 +129,11 @@ func TestValidate(t *testing.T) {
 			want: "password_file",
 		},
 		{
+			name: "sftp fields on a local repository",
+			mod:  func(c *Config) { c.Repository.SFTPKeyFile = "/tmp/key" },
+			want: "sftp",
+		},
+		{
 			name: "relative env file",
 			mod:  func(c *Config) { c.Repository.EnvFile = "restic.env" },
 			want: "env_file",
@@ -396,5 +401,29 @@ func TestRenderExampleCustomWithoutPathsFails(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Fatal("invalid config was written")
+	}
+}
+
+func TestSFTPDefaults(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+[repository]
+url = "sftp:backup@host:/srv/backup"
+password_file = "/tmp/pass"
+sftp_key_file = "/etc/jealous-vault/ssh_key"
+
+[backup]
+paths = ["/etc"]
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Repository.SFTPConfig != "/etc/jealous-vault/ssh_config" {
+		t.Errorf("sftp config = %q", cfg.Repository.SFTPConfig)
+	}
+	if cfg.Repository.SFTPKnownHosts != "/etc/jealous-vault/known_hosts" {
+		t.Errorf("known hosts = %q", cfg.Repository.SFTPKnownHosts)
 	}
 }

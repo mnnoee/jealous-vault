@@ -205,3 +205,22 @@ func TestCheckAndForget(t *testing.T) {
 		t.Errorf("forget args = %q", args)
 	}
 }
+
+func TestExtraOptions(t *testing.T) {
+	binary, argsFile := fakeRestic(t, "echo 'null'\n")
+	client := New(Options{
+		Binary:     binary,
+		Repository: "sftp:backup@host:/srv/repo",
+		Env:        map[string]string{"ARGS_FILE": argsFile},
+		Extra:      []string{"-o", "sftp.args=-F /etc/jealous-vault/ssh_config"},
+	})
+
+	if _, err := client.Snapshots(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	args := readArgs(t, argsFile)
+	want := "-o sftp.args=-F /etc/jealous-vault/ssh_config snapshots --json"
+	if args != want {
+		t.Fatalf("args = %q, want %q", args, want)
+	}
+}

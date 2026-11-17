@@ -52,10 +52,13 @@ type Config struct {
 
 // Repo describes the restic repository and its credentials.
 type Repo struct {
-	URL          string            `toml:"url"`
-	PasswordFile string            `toml:"password_file"`
-	EnvFile      string            `toml:"env_file"`
-	Env          map[string]string `toml:"env"`
+	URL            string            `toml:"url"`
+	PasswordFile   string            `toml:"password_file"`
+	EnvFile        string            `toml:"env_file"`
+	SFTPKeyFile    string            `toml:"sftp_key_file"`
+	SFTPKnownHosts string            `toml:"sftp_known_hosts"`
+	SFTPConfig     string            `toml:"sftp_config"`
+	Env            map[string]string `toml:"env"`
 }
 
 // Backup describes what to copy and how.
@@ -188,6 +191,14 @@ func (c *Config) finish() error {
 	if c.Backup.Profile == "" {
 		c.Backup.Profile = "host"
 	}
+	if c.Repository.SFTPKeyFile != "" {
+		if c.Repository.SFTPConfig == "" {
+			c.Repository.SFTPConfig = "/etc/jealous-vault/ssh_config"
+		}
+		if c.Repository.SFTPKnownHosts == "" {
+			c.Repository.SFTPKnownHosts = "/etc/jealous-vault/known_hosts"
+		}
+	}
 	if c.Backup.Timeout == "" {
 		c.Backup.Timeout = "6h"
 	}
@@ -238,6 +249,10 @@ func (c *Config) Validate() error {
 	if c.Repository.PasswordFile == "" && c.Repository.Env["RESTIC_PASSWORD"] == "" {
 		return errors.New("repository.password_file or RESTIC_PASSWORD in repository.env is required")
 	}
+	sftpFields := c.Repository.SFTPKeyFile != "" || c.Repository.SFTPKnownHosts != "" || c.Repository.SFTPConfig != ""
+	if sftpFields && !strings.HasPrefix(c.Repository.URL, "sftp:") {
+		return errors.New("sftp_key_file, sftp_known_hosts and sftp_config require an sftp repository url")
+	}
 	for _, item := range []struct {
 		key  string
 		path string
@@ -245,6 +260,9 @@ func (c *Config) Validate() error {
 		{"state_file", c.StateFile},
 		{"repository.password_file", c.Repository.PasswordFile},
 		{"repository.env_file", c.Repository.EnvFile},
+		{"repository.sftp_key_file", c.Repository.SFTPKeyFile},
+		{"repository.sftp_known_hosts", c.Repository.SFTPKnownHosts},
+		{"repository.sftp_config", c.Repository.SFTPConfig},
 	} {
 		if item.path != "" && !filepath.IsAbs(item.path) {
 			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
@@ -318,6 +336,14 @@ func (c *Config) RetentionArgs() []string {
 	add("--keep-weekly", c.Retention.KeepWeekly)
 	add("--keep-monthly", c.Retention.KeepMonthly)
 	return args
+}
+
+// ResticExtraOptions returns global restic options for this repository.
+func (c *Config) ResticExtraOptions() []string {
+	if c.Repository.SFTPConfig == "" || !strings.HasPrefix(c.Repository.URL, "sftp:") {
+		return nil
+	}
+	return []string{"-o", "sftp.args=-F " + c.Repository.SFTPConfig}
 }
 
 // HasRetention reports whether forget should run after a backup.

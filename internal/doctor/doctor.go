@@ -66,6 +66,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 		Repository:   cfg.Repository.URL,
 		PasswordFile: cfg.Repository.PasswordFile,
 		Env:          cfg.Repository.Env,
+		Extra:        cfg.ResticExtraOptions(),
 		Logger:       opts.Logger,
 	})
 

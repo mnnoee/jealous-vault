@@ -41,6 +41,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			Repository:   cfg.Repository.URL,
 			PasswordFile: cfg.Repository.PasswordFile,
 			Env:          cfg.Repository.Env,
+			Extra:        cfg.ResticExtraOptions(),
 			Logger:       log,
 			Output:       out,
 		}),

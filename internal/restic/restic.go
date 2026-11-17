@@ -28,6 +28,7 @@ type Options struct {
 	Repository   string
 	PasswordFile string
 	Env          map[string]string
+	Extra        []string
 	Logger       *slog.Logger
 	Output       io.Writer
 }
@@ -38,6 +39,7 @@ type Client struct {
 	repository   string
 	passwordFile string
 	env          map[string]string
+	extra        []string
 	log          *slog.Logger
 	out          io.Writer
 }
@@ -61,6 +63,7 @@ func New(o Options) *Client {
 		repository:   o.Repository,
 		passwordFile: o.PasswordFile,
 		env:          o.Env,
+		extra:        append([]string(nil), o.Extra...),
 		log:          log,
 		out:          out,
 	}
@@ -84,7 +87,10 @@ func (c *Client) environment() []string {
 }
 
 func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, c.binary, args...)
+	all := make([]string, 0, len(c.extra)+len(args))
+	all = append(all, c.extra...)
+	all = append(all, args...)
+	cmd := exec.CommandContext(ctx, c.binary, all...)
 	cmd.Env = c.environment()
 	return cmd
 }

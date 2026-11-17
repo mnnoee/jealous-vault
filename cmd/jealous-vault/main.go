@@ -28,6 +28,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
+	"github.com/mnnoee/jealous-vault/internal/sftp"
 	"github.com/mnnoee/jealous-vault/internal/state"
 	"github.com/mnnoee/jealous-vault/internal/systemd"
 )
@@ -165,9 +166,14 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 		Repository:   cfg.Repository.URL,
 		PasswordFile: cfg.Repository.PasswordFile,
 		Env:          cfg.Repository.Env,
+		Extra:        cfg.ResticExtraOptions(),
 		Logger:       log,
 		Output:       os.Stdout,
 	})
+}
+
+func prepareRepository(cfg *config.Config) error {
+	return sftp.EnsureConfig(cfg)
 }
 
 func cmdInit(ctx context.Context, args []string) error {
@@ -180,6 +186,8 @@ func cmdInit(ctx context.Context, args []string) error {
 	profile := stringFlag(fs, "profile", "host", "backup profile: host, vm-dumps or custom")
 	passwordFile := stringFlag(fs, "password-file", "", "file that will hold the repository password")
 	stateFile := stringFlag(fs, "state-file", config.DefaultStateFile, "file that will hold the last run state")
+	sftpKey := stringFlag(fs, "sftp-key", "", "private key for sftp repositories")
+	sftpKnownHosts := stringFlag(fs, "sftp-known-hosts", "", "known_hosts file for sftp repositories")
 	force := fs.Bool("force", false, "overwrite an existing configuration")
 	noRepoInit := fs.Bool("no-repo-init", false, "only write the config and password")
 	verbose := fs.Bool("verbose", false, "debug logging")
@@ -199,13 +207,15 @@ func cmdInit(ctx context.Context, args []string) error {
 	}
 
 	pwPath, err := writeInitialConfig(*configPath, config.InitOptions{
-		Host:          *host,
-		RepositoryURL: *repoURL,
-		PasswordFile:  *passwordFile,
-		StateFile:     *stateFile,
-		Profile:       *profile,
-		Paths:         splitComma(*paths),
-		Excludes:      splitComma(*excludes),
+		Host:           *host,
+		RepositoryURL:  *repoURL,
+		PasswordFile:   *passwordFile,
+		StateFile:      *stateFile,
+		Profile:        *profile,
+		Paths:          splitComma(*paths),
+		Excludes:       splitComma(*excludes),
+		SFTPKeyFile:    *sftpKey,
+		SFTPKnownHosts: *sftpKnownHosts,
 	}, *force)
 	if err != nil {
 		return err
@@ -261,6 +271,9 @@ func cmdRepo(ctx context.Context, args []string) error {
 }
 
 func initRepository(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	if err := resticClient(cfg, log).Init(ctx); err != nil {
 		if alreadyInitialized(err) {
 			fmt.Println("repository already initialized")
@@ -321,6 +334,9 @@ func cmdInstall(ctx context.Context, args []string) error {
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
 	log := newLogger(*verbose)
@@ -387,6 +403,9 @@ func cmdBackup(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	if *noPrune {
 		cfg.Retention.Prune = false
 	}
@@ -444,6 +463,9 @@ func cmdSnapshots(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	client := resticClient(cfg, newLogger(*verbose))
 	host := cfg.Host
 	if *allHosts {
@@ -499,6 +521,9 @@ func cmdMount(ctx context.Context, args []string) error {
 
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
 	client := resticClient(cfg, newLogger(*verbose))
@@ -601,6 +626,9 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	plan.Host = cfg.Host
 	fmt.Print(plan.Describe())
 	if plan.Dangerous() && !*yes {
@@ -664,6 +692,9 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	target := *targetDir
 	if target == "" {
 		target = restore.TestTarget("", time.Now())
@@ -704,6 +735,9 @@ func cmdCheck(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
 	if *readDataSubset != "" {
 		cfg.Check.ReadDataSubset = *readDataSubset
 	}
@@ -738,6 +772,10 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	if err != nil {
 		fmt.Printf("[fail] config %v\n", err)
 		return &exitError{code: 1, err: errors.New("configuration is not usable")}
+	}
+	if err := prepareRepository(cfg); err != nil {
+		fmt.Printf("[fail] sftp %v\n", err)
+		return &exitError{code: 1, err: errors.New("sftp configuration is not usable")}
 	}
 
 	report := doctor.Run(ctx, cfg, doctor.Options{Logger: newLogger(*verbose)})

@@ -13,13 +13,15 @@ import (
 
 // InitOptions holds the values written by "jealous-vault init".
 type InitOptions struct {
-	Host          string
-	StateFile     string
-	RepositoryURL string
-	PasswordFile  string
-	Profile       string
-	Paths         []string
-	Excludes      []string
+	Host           string
+	StateFile      string
+	RepositoryURL  string
+	PasswordFile   string
+	Profile        string
+	Paths          []string
+	Excludes       []string
+	SFTPKeyFile    string
+	SFTPKnownHosts string
 }
 
 // Preset is a set of default paths and excludes for a backup profile.
@@ -93,6 +95,14 @@ func RenderExample(o InitOptions) string {
 	if len(excludes) == 0 {
 		excludes = preset.Excludes
 	}
+	sftpKeyLine := `# sftp_key_file = "/etc/jealous-vault/ssh_key"`
+	if o.SFTPKeyFile != "" {
+		sftpKeyLine = "sftp_key_file = " + quote(o.SFTPKeyFile)
+	}
+	sftpKnownHostsLine := `# sftp_known_hosts = "/etc/jealous-vault/known_hosts"`
+	if o.SFTPKnownHosts != "" {
+		sftpKnownHostsLine = "sftp_known_hosts = " + quote(o.SFTPKnownHosts)
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `# JealousVault agent configuration.
@@ -109,6 +119,9 @@ url = %s
 password_file = %s
 # Optional KEY=VALUE file with AWS_ACCESS_KEY_ID and friends.
 # env_file = "/etc/jealous-vault/restic.env"
+# SFTP only: isolated SSH config, system ssh files are not touched.
+%s
+%s
 
 [backup]
 # host: OS configuration and data, without VM dump archives.
@@ -159,7 +172,7 @@ telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false
 timeout = "10s"
-`, quote(host), quote(stateFile), quote(repoURL), quote(passwordFile), quote(profile), quoteSlice(paths), quoteSlice(excludes))
+`, quote(host), quote(stateFile), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes))
 
 	return b.String()
 }
