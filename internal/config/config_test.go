@@ -72,6 +72,15 @@ paths = ["/etc"]
 	if !cfg.Freshness.RespectBackupTimer {
 		t.Error("freshness must respect the backup timer by default")
 	}
+	if !cfg.Verify.Enabled || cfg.Verify.Level != "files" {
+		t.Errorf("verify defaults = %+v", cfg.Verify)
+	}
+	if cfg.VerifyTimeout != 2*time.Hour {
+		t.Errorf("verify timeout = %s", cfg.VerifyTimeout)
+	}
+	if cfg.VerifyMaxSize != 10_000_000_000 {
+		t.Errorf("verify max size = %d", cfg.VerifyMaxSize)
+	}
 }
 
 func TestLoadUnknownKey(t *testing.T) {
@@ -126,6 +135,16 @@ func TestValidate(t *testing.T) {
 			want: "telegram",
 		},
 		{
+			name: "unknown verify level",
+			mod:  func(c *Config) { c.Verify.Level = "magic" },
+			want: "verify.level",
+		},
+		{
+			name: "service verify without hook",
+			mod:  func(c *Config) { c.Verify.Level = "service" },
+			want: "verify.post_hook",
+		},
+		{
 			name: "unknown profile",
 			mod:  func(c *Config) { c.Backup.Profile = "everything" },
 			want: "backup.profile",
@@ -173,6 +192,9 @@ func TestValidate(t *testing.T) {
 			cfg.NotifyTimeout = time.Second
 			cfg.RandomizedDelay = 15 * time.Minute
 			cfg.FreshnessMaxAge = 25 * time.Hour
+			cfg.VerifyTimeout = 2 * time.Hour
+			cfg.VerifyMaxSize = 10_000_000_000
+			cfg.VerifyMinFree = 20_000_000_000
 			tc.mod(cfg)
 
 			err := cfg.Validate()

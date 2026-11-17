@@ -27,6 +27,8 @@ const (
 	CheckTimer       = "jealous-vault-check.timer"
 	FreshnessService = "jealous-vault-freshness.service"
 	FreshnessTimer   = "jealous-vault-freshness.timer"
+	VerifyService    = "jealous-vault-verify.service"
+	VerifyTimer      = "jealous-vault-verify.timer"
 )
 
 const checkCalendar = "Sun *-*-* 04:30:00"
@@ -68,6 +70,14 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		FreshnessService: freshnessService(i.BinaryPath, i.ConfigPath),
 		FreshnessTimer:   freshnessTimer(cfg.Freshness.Schedule),
 	}
+	if cfg.Verify.Enabled {
+		units[VerifyService] = verifyService(i.BinaryPath, i.ConfigPath)
+		units[VerifyTimer] = verifyTimer(cfg.Verify.Schedule)
+	} else {
+		for _, name := range []string{VerifyTimer, VerifyService} {
+			_ = os.Remove(filepath.Join(i.UnitDir, name))
+		}
+	}
 	for name, body := range units {
 		if err := writeFile(filepath.Join(i.UnitDir, name), []byte(body)); err != nil {
 			return err
@@ -82,7 +92,11 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		fmt.Fprintln(out, "timers written but not started (--no-start)")
 		return nil
 	}
-	if err := i.systemctl(ctx, "enable", "--now", BackupTimer, CheckTimer, FreshnessTimer); err != nil {
+	timers := []string{BackupTimer, CheckTimer, FreshnessTimer}
+	if cfg.Verify.Enabled {
+		timers = append(timers, VerifyTimer)
+	}
+	if err := i.systemctl(ctx, append([]string{"enable", "--now"}, timers...)...); err != nil {
 		return err
 	}
 	fmt.Fprintln(out, "timers enabled")
@@ -99,10 +113,10 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	}
 
 	var errs []error
-	if err := i.systemctl(ctx, "disable", "--now", BackupTimer, CheckTimer, FreshnessTimer); err != nil {
+	if err := i.systemctl(ctx, "disable", "--now", BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer); err != nil {
 		errs = append(errs, err)
 	}
-	for _, name := range []string{BackupTimer, BackupService, CheckTimer, CheckService, FreshnessTimer, FreshnessService} {
+	for _, name := range []string{BackupTimer, BackupService, CheckTimer, CheckService, FreshnessTimer, FreshnessService, VerifyTimer, VerifyService} {
 		path := filepath.Join(i.UnitDir, name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, err)
@@ -324,6 +338,42 @@ Unit=%s
 [Install]
 WantedBy=timers.target
 `, schedule, FreshnessService)
+}
+
+func verifyService(binary, configPath string) string {
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault scheduled test restore
+Documentation=https://github.com/mnnoee/jealous-vault
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%s test-restore --config %s
+TimeoutStartSec=0
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+`, quoteArg(binary), quoteArg(configPath))
+}
+
+func verifyTimer(schedule string) string {
+	if schedule == "" {
+		schedule = "Sun *-*-* 05:00:00"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault test restore timer
+
+[Timer]
+OnCalendar=%s
+RandomizedDelaySec=1h
+Persistent=true
+AccuracySec=1m
+Unit=%s
+
+[Install]
+WantedBy=timers.target
+`, schedule, VerifyService)
 }
 
 func quoteArg(s string) string {

@@ -103,3 +103,21 @@ func TestFailedBackupKeepsLastSuccess(t *testing.T) {
 		t.Fatalf("last success = %+v", st.LastSuccess)
 	}
 }
+
+func TestRecordVerify(t *testing.T) {
+	store := Store{Path: filepath.Join(t.TempDir(), "state.json")}
+	run := Run{Kind: KindVerify, StartedAt: time.Now(), FinishedAt: time.Now(), Status: StatusSkipped, Error: "too big"}
+	if _, err := store.Record(run); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.LastVerify == nil || st.LastVerify.Status != StatusSkipped {
+		t.Fatalf("last verify = %+v", st.LastVerify)
+	}
+	if st.LastRun != nil {
+		t.Fatalf("verify must not touch last run: %+v", st.LastRun)
+	}
+}

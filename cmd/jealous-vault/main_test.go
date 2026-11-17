@@ -77,3 +77,15 @@ func TestResolveSnapshot(t *testing.T) {
 		t.Error("missing snapshot must not resolve")
 	}
 }
+
+func TestVerifySkipReason(t *testing.T) {
+	if reason := verifySkipReason(11_000_000_000, 0, 10_000_000_000, 0); reason == "" {
+		t.Error("oversized snapshot must be skipped")
+	}
+	if reason := verifySkipReason(1_000_000_000, 5_000_000_000, 10_000_000_000, 20_000_000_000); reason == "" {
+		t.Error("low free space must be skipped")
+	}
+	if reason := verifySkipReason(1_000_000_000, 50_000_000_000, 10_000_000_000, 20_000_000_000); reason != "" {
+		t.Errorf("unexpected skip: %s", reason)
+	}
+}

@@ -398,9 +398,18 @@ type Stats struct {
 
 // Stats returns repository statistics for the given restic mode.
 func (c *Client) Stats(ctx context.Context, mode string) (Stats, error) {
+	return c.StatsFor(ctx, "", mode)
+}
+
+// StatsFor returns statistics for one snapshot, or the whole repository when
+// snapshot is empty.
+func (c *Client) StatsFor(ctx context.Context, snapshot, mode string) (Stats, error) {
 	args := []string{"stats", "--json"}
 	if mode != "" {
 		args = append(args, "--mode", mode)
+	}
+	if snapshot != "" {
+		args = append(args, snapshot)
 	}
 
 	var stdout bytes.Buffer

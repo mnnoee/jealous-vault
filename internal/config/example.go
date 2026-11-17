@@ -168,6 +168,17 @@ schedule = "*-*-* 00,06,12,18:15:00"
 read_data_subset = ""
 timeout = "2h"
 
+[verify]
+# Scheduled test restore. Skipped when the snapshot or free space exceeds limits.
+enabled = true
+level = "files"                 # files or service
+max_size = "10GB"
+min_free = "20GB"
+timeout = "2h"
+schedule = "Sun *-*-* 05:00:00"
+# Required for level = "service", runs after the restore.
+post_hook = ""
+
 [restore]
 # Hooks run around a restore. Use them to stop and start services.
 pre_hooks = []

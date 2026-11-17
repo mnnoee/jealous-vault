@@ -41,6 +41,7 @@ type Config struct {
 	Retention    Retention `toml:"retention"`
 	Schedule     Schedule  `toml:"schedule"`
 	Freshness    Freshness `toml:"freshness"`
+	Verify       Verify    `toml:"verify"`
 	Check        Check     `toml:"check"`
 	Restore      Restore   `toml:"restore"`
 	Notify       Notify    `toml:"notify"`
@@ -52,6 +53,9 @@ type Config struct {
 	NotifyTimeout   time.Duration `toml:"-"`
 	RandomizedDelay time.Duration `toml:"-"`
 	FreshnessMaxAge time.Duration `toml:"-"`
+	VerifyTimeout   time.Duration `toml:"-"`
+	VerifyMaxSize   int64         `toml:"-"`
+	VerifyMinFree   int64         `toml:"-"`
 }
 
 // Repo describes the restic repository and its credentials.
@@ -99,6 +103,17 @@ type Freshness struct {
 	Schedule           string `toml:"schedule"`
 }
 
+// Verify controls the scheduled test restore.
+type Verify struct {
+	Enabled  bool   `toml:"enabled"`
+	Level    string `toml:"level"`
+	MaxSize  string `toml:"max_size"`
+	MinFree  string `toml:"min_free"`
+	Timeout  string `toml:"timeout"`
+	Schedule string `toml:"schedule"`
+	PostHook string `toml:"post_hook"`
+}
+
 // Check controls the integrity check timer.
 type Check struct {
 	ReadDataSubset string `toml:"read_data_subset"`
@@ -144,6 +159,14 @@ func Default() *Config {
 			MaxAge:             "25h",
 			RespectBackupTimer: true,
 			Schedule:           "*-*-* 00,06,12,18:15:00",
+		},
+		Verify: Verify{
+			Enabled:  true,
+			Level:    "files",
+			MaxSize:  "10GB",
+			MinFree:  "20GB",
+			Timeout:  "2h",
+			Schedule: "Sun *-*-* 05:00:00",
 		},
 		Backup: Backup{Profile: "host", Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
@@ -217,6 +240,21 @@ func (c *Config) finish() error {
 	if c.Freshness.Schedule == "" {
 		c.Freshness.Schedule = "*-*-* 00,06,12,18:15:00"
 	}
+	if c.Verify.Level == "" {
+		c.Verify.Level = "files"
+	}
+	if c.Verify.MaxSize == "" {
+		c.Verify.MaxSize = "10GB"
+	}
+	if c.Verify.MinFree == "" {
+		c.Verify.MinFree = "20GB"
+	}
+	if c.Verify.Timeout == "" {
+		c.Verify.Timeout = "2h"
+	}
+	if c.Verify.Schedule == "" {
+		c.Verify.Schedule = "Sun *-*-* 05:00:00"
+	}
 	if c.Backup.Profile == "" {
 		c.Backup.Profile = "host"
 	}
@@ -268,6 +306,15 @@ func (c *Config) finish() error {
 	}
 	if c.FreshnessMaxAge, err = parseDuration("freshness.max_age", c.Freshness.MaxAge); err != nil {
 		return err
+	}
+	if c.VerifyTimeout, err = parseDuration("verify.timeout", c.Verify.Timeout); err != nil {
+		return err
+	}
+	if c.VerifyMaxSize, err = ParseSize(c.Verify.MaxSize); err != nil {
+		return fmt.Errorf("verify.max_size: %w", err)
+	}
+	if c.VerifyMinFree, err = ParseSize(c.Verify.MinFree); err != nil {
+		return fmt.Errorf("verify.min_free: %w", err)
 	}
 
 	return c.Validate()
@@ -334,6 +381,26 @@ func (c *Config) Validate() error {
 	}
 	if c.Freshness.Schedule == "" {
 		return errors.New("freshness.schedule is empty")
+	}
+	switch c.Verify.Level {
+	case "files", "service":
+	default:
+		return fmt.Errorf("verify.level %q must be files or service", c.Verify.Level)
+	}
+	if c.Verify.Level == "service" && c.Verify.PostHook == "" {
+		return errors.New("verify.post_hook is required for the service level")
+	}
+	if c.VerifyMaxSize <= 0 {
+		return errors.New("verify.max_size must be positive")
+	}
+	if c.VerifyMinFree <= 0 {
+		return errors.New("verify.min_free must be positive")
+	}
+	if c.VerifyTimeout <= 0 {
+		return errors.New("verify.timeout must be positive")
+	}
+	if c.Verify.Enabled && c.Verify.Schedule == "" {
+		return errors.New("verify.schedule is empty")
 	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")

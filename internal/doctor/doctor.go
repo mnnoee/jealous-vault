@@ -87,7 +87,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkPaths(cfg, add)
 	stateDir := checkStateDir(cfg, add)
 	checkFreeSpace(stateDir, add)
-	checkSystemd(ctx, opts.Systemctl, add)
+	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, add)
 	checkS3Credentials(cfg, add)
 	checkRetention(cfg, add)
 
@@ -214,7 +214,7 @@ func checkFreeSpace(dir string, add func(string, Level, string)) {
 	add("disk", LevelOK, humanBytes(free)+" free")
 }
 
-func checkSystemd(ctx context.Context, systemctl string, add func(string, Level, string)) {
+func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add func(string, Level, string)) {
 	if systemctl == "" {
 		systemctl = "systemctl"
 	}
@@ -224,11 +224,15 @@ func checkSystemd(ctx context.Context, systemctl string, add func(string, Level,
 	}
 
 	var problems []string
-	for _, timer := range []string{
+	timers := []string{
 		"jealous-vault-backup.timer",
 		"jealous-vault-check.timer",
 		"jealous-vault-freshness.timer",
-	} {
+	}
+	if verifyEnabled {
+		timers = append(timers, "jealous-vault-verify.timer")
+	}
+	for _, timer := range timers {
 		if err := systemctlRun(ctx, systemctl, "is-enabled", timer); err != nil {
 			problems = append(problems, timer+" is not enabled")
 			continue
@@ -241,7 +245,7 @@ func checkSystemd(ctx context.Context, systemctl string, add func(string, Level,
 		add("systemd", LevelWarn, strings.Join(problems, ", "))
 		return
 	}
-	add("systemd", LevelOK, "backup, check and freshness timers are enabled and active")
+	add("systemd", LevelOK, "configured timers are enabled and active")
 }
 
 func systemctlRun(ctx context.Context, systemctl string, args ...string) error {

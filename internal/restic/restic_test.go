@@ -243,3 +243,22 @@ fi
 		t.Errorf("args = %q", args)
 	}
 }
+
+func TestStatsForSnapshot(t *testing.T) {
+	binary, argsFile := fakeRestic(t, `if [ "$1" = "stats" ]; then
+  echo '{"total_size":42,"total_file_count":1,"total_blob_count":1,"snapshots_count":1}'
+fi
+`)
+	client := newTestClient(binary, argsFile)
+
+	stats, err := client.StatsFor(context.Background(), "abc123", "restore-size")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalSize != 42 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if args := readArgs(t, argsFile); !strings.Contains(args, "stats --json --mode restore-size abc123") {
+		t.Errorf("args = %q", args)
+	}
+}

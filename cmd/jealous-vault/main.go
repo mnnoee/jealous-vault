@@ -809,8 +809,16 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 func cmdTestRestore(ctx context.Context, args []string) error {
 	fs := newFlagSet("test-restore")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
-	snapshot := stringFlag(fs, "snapshot", "latest", "snapshot ID or latest")
-	targetDir := stringFlag(fs, "target", "", "directory for the test restore")
+	snapshotRef := stringFlag(fs, "snapshot", "latest", "snapshot ID or latest")
+	targetFlag := stringFlag(fs, "target", "", "directory for the test restore")
+	levelFlag := stringFlag(fs, "level", "", "files or service, defaults to verify.level")
+	maxSizeFlag := stringFlag(fs, "max-size", "", "override verify.max_size")
+	minFreeFlag := stringFlag(fs, "min-free", "", "override verify.min_free")
+	postHookFlag := stringFlag(fs, "post-hook", "", "override verify.post_hook")
+	timeoutFlag := fs.Duration("timeout", 0, "override verify.timeout")
+	keep := fs.Bool("keep", false, "keep an automatic target directory on success")
+	noNotify := fs.Bool("no-notify", false, "do not send alerts")
+	asJSON := fs.Bool("json", false, "print the result as JSON")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -834,27 +842,198 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 		return nil
 	}
 	defer runLock.Release()
-	target := *targetDir
-	if target == "" {
-		target = restore.TestTarget("", time.Now())
+
+	level := cfg.Verify.Level
+	if *levelFlag != "" {
+		level = *levelFlag
 	}
-	if err := os.MkdirAll(target, 0o750); err != nil {
-		return err
+	if level != "files" && level != "service" {
+		return fmt.Errorf("unknown verify level %q, use files or service", level)
+	}
+	postHook := cfg.Verify.PostHook
+	if *postHookFlag != "" {
+		postHook = *postHookFlag
+	}
+	if level == "service" && postHook == "" {
+		return errors.New("verify.post_hook is required for the service level")
 	}
 
-	plan, err := restore.New(*snapshot, target, nil, restore.OverwriteAlways)
+	maxSize := cfg.VerifyMaxSize
+	if *maxSizeFlag != "" {
+		maxSize, err = config.ParseSize(*maxSizeFlag)
+		if err != nil {
+			return err
+		}
+	}
+	minFree := cfg.VerifyMinFree
+	if *minFreeFlag != "" {
+		minFree, err = config.ParseSize(*minFreeFlag)
+		if err != nil {
+			return err
+		}
+	}
+	timeout := cfg.VerifyTimeout
+	if *timeoutFlag > 0 {
+		timeout = *timeoutFlag
+	}
+
+	now := time.Now()
+	autoTarget := *targetFlag == ""
+	target := *targetFlag
+	if autoTarget {
+		target = restore.TestTarget(filepath.Join(filepath.Dir(cfg.StateFile), "verify"), now)
+	}
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
+	store := state.Store{Path: cfg.StateFile}
+	run := state.Run{Kind: state.KindVerify, StartedAt: now, Status: state.StatusFailed}
+	var snapshotID string
+
+	finish := func(status string, cause error) error {
+		run.Status = status
+		run.FinishedAt = time.Now()
+		run.DurationSeconds = run.FinishedAt.Sub(run.StartedAt).Seconds()
+		if cause != nil {
+			run.Error = cause.Error()
+		}
+		if _, err := store.Record(run); err != nil {
+			log.Error("cannot write state", "error", err)
+		}
+		if !*noNotify {
+			notifier := notify.New(notify.Options{
+				Webhooks:        cfg.Notify.Webhooks,
+				DedupFile:       cfg.AlertsFile,
+				TelegramToken:   cfg.Notify.TelegramToken,
+				TelegramChatID:  cfg.Notify.TelegramChatID,
+				NotifyOnSuccess: cfg.Notify.NotifyOnSuccess,
+				Timeout:         cfg.NotifyTimeout,
+				Logger:          log,
+			})
+			ev := notify.Event{
+				Event:           "verify",
+				Status:          status,
+				Host:            cfg.Host,
+				Snapshot:        snapshotID,
+				DurationSeconds: run.DurationSeconds,
+				Error:           run.Error,
+				Time:            run.FinishedAt,
+			}
+			if err := notifier.Send(ctx, ev); err != nil {
+				fmt.Fprintf(os.Stderr, "jealous-vault: cannot send verify alert: %v\n", err)
+			}
+		}
+		if *asJSON {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			if err := enc.Encode(run); err != nil {
+				return err
+			}
+		} else {
+			fmt.Printf("verify %s\n", status)
+			if run.Error != "" {
+				fmt.Printf("  %s\n", run.Error)
+			}
+			if _, err := os.Stat(target); err == nil {
+				fmt.Printf("  target: %s\n", target)
+			}
+		}
+		if status == state.StatusFailed {
+			if cause != nil {
+				return cause
+			}
+			return errors.New("verification failed")
+		}
+		return nil
+	}
+
+	snapshots, err := client.Snapshots(ctx, "")
 	if err != nil {
-		return err
+		return finish(state.StatusFailed, err)
+	}
+	snapshot, err := resolveSnapshot(snapshots, *snapshotRef, cfg.Host)
+	if err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	snapshotID = snapshot.ID
+	run.SnapshotID = snapshot.ID
+
+	stats, err := client.StatsFor(ctx, snapshot.ID, "restore-size")
+	if err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	if reason := verifySkipReason(stats.TotalSize, 0, maxSize, 0); reason != "" {
+		return finish(state.StatusSkipped, errors.New(reason))
+	}
+
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	free, err := freeBytes(target)
+	if err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	if reason := verifySkipReason(0, free, 0, minFree); reason != "" {
+		if autoTarget {
+			os.RemoveAll(target)
+		}
+		return finish(state.StatusSkipped, errors.New(reason))
+	}
+
+	plan, err := restore.New(snapshot.ID, target, nil, restore.OverwriteAlways)
+	if err != nil {
+		return finish(state.StatusFailed, err)
 	}
 	plan.Host = cfg.Host
-	fmt.Printf("restoring %s into %s\n", plan.Snapshot, target)
-	log := newLogger(*verbose)
-	if err := executeRestore(ctx, cfg, plan, log, "test-restore"); err != nil {
-		return err
+	plan.Verify = level == "files"
+
+	fmt.Printf("restoring %s into %s, level %s\n", snapshot.ShortID, target, level)
+	restoreCtx, cancel := context.WithTimeout(ctx, timeout)
+	err = plan.Execute(restoreCtx, client)
+	cancel()
+	if err != nil {
+		return finish(state.StatusFailed, err)
 	}
-	fmt.Printf("test restore finished: %s\n", target)
-	fmt.Println("inspect the files, then remove the directory")
-	return nil
+
+	if level == "service" {
+		env := map[string]string{
+			"JM_EVENT":         "verify",
+			"JM_PHASE":         "post",
+			"JM_STATUS":        "success",
+			"JM_HOST":          cfg.Host,
+			"JM_SNAPSHOT":      snapshot.ID,
+			"JM_VERIFY_TARGET": target,
+		}
+		if err := hooks.Run(ctx, log, "verify", []string{postHook}, env); err != nil {
+			return finish(state.StatusFailed, err)
+		}
+	}
+
+	if autoTarget && !*keep {
+		if err := os.RemoveAll(target); err != nil {
+			fmt.Fprintf(os.Stderr, "jealous-vault: cannot clean up %s: %v\n", target, err)
+		} else {
+			fmt.Printf("cleaned up %s\n", target)
+		}
+	}
+	return finish(state.StatusSuccess, nil)
+}
+
+func verifySkipReason(size, free, maxSize, minFree int64) string {
+	if maxSize > 0 && size > maxSize {
+		return fmt.Sprintf("snapshot is %s, limit %s", humanBytes(size), humanBytes(maxSize))
+	}
+	if minFree > 0 && free < minFree {
+		return fmt.Sprintf("free space is %s, minimum %s", humanBytes(free), humanBytes(minFree))
+	}
+	return ""
+}
+
+func freeBytes(path string) (int64, error) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return 0, err
+	}
+	return int64(stat.Bavail) * int64(stat.Bsize), nil
 }
 
 func cmdCheck(ctx context.Context, args []string) error {
@@ -1032,6 +1211,7 @@ type statusOutput struct {
 	LastRun     *state.Run `json:"last_run,omitempty"`
 	LastSuccess *state.Run `json:"last_success,omitempty"`
 	LastCheck   *state.Run `json:"last_check,omitempty"`
+	LastVerify  *state.Run `json:"last_verify,omitempty"`
 }
 
 func cmdStatus(args []string) error {
@@ -1073,6 +1253,7 @@ func cmdStatus(args []string) error {
 		LastRun:     st.LastRun,
 		LastSuccess: st.LastSuccess,
 		LastCheck:   st.LastCheck,
+		LastVerify:  st.LastVerify,
 	}
 	if running && runInfo.PID != 0 {
 		out.CurrentRun = &runInfo
@@ -1099,6 +1280,7 @@ func cmdStatus(args []string) error {
 		printStatusLine("last run", st.LastRun, now)
 		printStatusLine("last success", st.LastSuccess, now)
 		printStatusLine("last check", st.LastCheck, now)
+		printStatusLine("last verify", st.LastVerify, now)
 		if stale {
 			fmt.Printf("\nbackup is stale, max age %s\n", maxAge.String())
 		}

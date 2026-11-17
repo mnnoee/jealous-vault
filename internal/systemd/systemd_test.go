@@ -48,7 +48,7 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	if _, err := os.Stat(binary); err != nil {
 		t.Fatalf("binary was not installed: %v", err)
 	}
-	for _, name := range []string{BackupService, BackupTimer, CheckService, CheckTimer, FreshnessService, FreshnessTimer} {
+	for _, name := range []string{BackupService, BackupTimer, CheckService, CheckTimer, FreshnessService, FreshnessTimer, VerifyService, VerifyTimer} {
 		if _, err := os.Stat(filepath.Join(units, name)); err != nil {
 			t.Errorf("%s missing: %v", name, err)
 		}
@@ -79,7 +79,7 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"daemon-reload", "enable --now " + BackupTimer + " " + CheckTimer + " " + FreshnessTimer} {
+	for _, want := range []string{"daemon-reload", "enable --now " + BackupTimer + " " + CheckTimer + " " + FreshnessTimer + " " + VerifyTimer} {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("systemctl log does not contain %q:\n%s", want, log)
 		}
@@ -142,7 +142,7 @@ func TestUninstallRemovesUnits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(log), "disable --now "+BackupTimer+" "+CheckTimer+" "+FreshnessTimer) {
+	if !strings.Contains(string(log), "disable --now "+BackupTimer+" "+CheckTimer+" "+FreshnessTimer+" "+VerifyTimer) {
 		t.Errorf("timers were not disabled:\n%s", log)
 	}
 }

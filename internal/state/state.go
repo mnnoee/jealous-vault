@@ -17,12 +17,14 @@ import (
 const (
 	KindBackup = "backup"
 	KindCheck  = "check"
+	KindVerify = "verify"
 )
 
 // Run statuses.
 const (
 	StatusSuccess = "success"
 	StatusFailed  = "failed"
+	StatusSkipped = "skipped"
 )
 
 // Run is one finished backup or check.
@@ -45,6 +47,7 @@ type State struct {
 	LastRun     *Run `json:"last_run,omitempty"`
 	LastSuccess *Run `json:"last_success,omitempty"`
 	LastCheck   *Run `json:"last_check,omitempty"`
+	LastVerify  *Run `json:"last_verify,omitempty"`
 }
 
 // Store reads and writes a state file.
@@ -109,6 +112,8 @@ func (s Store) Record(run Run) (*State, error) {
 	switch run.Kind {
 	case KindCheck:
 		st.LastCheck = &run
+	case KindVerify:
+		st.LastVerify = &run
 	default:
 		st.LastRun = &run
 		if run.Status == StatusSuccess {
