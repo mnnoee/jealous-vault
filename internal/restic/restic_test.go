@@ -224,3 +224,22 @@ func TestExtraOptions(t *testing.T) {
 		t.Fatalf("args = %q, want %q", args, want)
 	}
 }
+
+func TestStats(t *testing.T) {
+	binary, argsFile := fakeRestic(t, `if [ "$1" = "stats" ]; then
+  echo '{"total_size":12345,"total_file_count":10,"total_blob_count":5,"snapshots_count":2}'
+fi
+`)
+	client := newTestClient(binary, argsFile)
+
+	stats, err := client.Stats(context.Background(), "raw-data")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.TotalSize != 12345 || stats.TotalFileCount != 10 || stats.SnapshotsCount != 2 {
+		t.Fatalf("stats = %+v", stats)
+	}
+	if args := readArgs(t, argsFile); !strings.Contains(args, "stats --json --mode raw-data") {
+		t.Errorf("args = %q", args)
+	}
+}

@@ -388,6 +388,39 @@ func (c *Client) Unlock(ctx context.Context) error {
 	return nil
 }
 
+// Stats describes repository usage.
+type Stats struct {
+	TotalSize      int64 `json:"total_size"`
+	TotalFileCount int64 `json:"total_file_count"`
+	TotalBlobCount int64 `json:"total_blob_count"`
+	SnapshotsCount int64 `json:"snapshots_count"`
+}
+
+// Stats returns repository statistics for the given restic mode.
+func (c *Client) Stats(ctx context.Context, mode string) (Stats, error) {
+	args := []string{"stats", "--json"}
+	if mode != "" {
+		args = append(args, "--mode", mode)
+	}
+
+	var stdout bytes.Buffer
+	cmd := c.command(ctx, args...)
+	cmd.Stdout = &stdout
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return Stats{}, commandError("stats", err, stderr.String())
+	}
+
+	var stats Stats
+	if err := json.Unmarshal(stdout.Bytes(), &stats); err != nil {
+		return Stats{}, fmt.Errorf("parse restic stats: %w", err)
+	}
+	return stats, nil
+}
+
 // Mount exposes the repository read-only through FUSE until the context ends.
 func (c *Client) Mount(ctx context.Context, target string, stdout, stderr io.Writer) error {
 	cmd := c.command(ctx, "mount", target)

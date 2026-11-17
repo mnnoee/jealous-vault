@@ -42,6 +42,9 @@ type Report struct {
 	Failed  bool     `json:"failed"`
 }
 
+// testedResticMinor is the restic series the agent is tested with.
+const testedResticMinor = "0.18"
+
 // Options configures external commands.
 type Options struct {
 	Systemctl string
@@ -139,8 +142,29 @@ func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client,
 		add("restic", LevelFail, err.Error())
 		return false
 	}
+	minor, ok := resticMinor(version)
+	if !ok {
+		add("restic", LevelWarn, version+" (cannot parse version)")
+		return true
+	}
+	if minor != testedResticMinor {
+		add("restic", LevelWarn, fmt.Sprintf("%s, tested with %s.x", version, testedResticMinor))
+		return true
+	}
 	add("restic", LevelOK, version)
 	return true
+}
+
+func resticMinor(version string) (string, bool) {
+	fields := strings.Fields(version)
+	if len(fields) < 2 {
+		return "", false
+	}
+	parts := strings.Split(fields[1], ".")
+	if len(parts) < 2 {
+		return "", false
+	}
+	return parts[0] + "." + parts[1], true
 }
 
 func checkPaths(cfg *config.Config, add func(string, Level, string)) {

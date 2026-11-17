@@ -247,27 +247,101 @@ func cmdInit(ctx context.Context, args []string) error {
 
 func cmdRepo(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: jealous-vault repo init [--config path]")
+		return errors.New("usage: jealous-vault repo <init|unlock|stats> [--config path]")
 	}
 	switch args[0] {
 	case "init":
-		fs := newFlagSet("repo init")
-		configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
-		verbose := fs.Bool("verbose", false, "debug logging")
-		if err := fs.Parse(args[1:]); err != nil {
-			return err
-		}
-		if fs.NArg() > 0 {
-			return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
-		}
-		cfg, err := loadConfig(*configPath)
-		if err != nil {
-			return err
-		}
-		return initRepository(ctx, cfg, newLogger(*verbose))
+		return cmdRepoInit(ctx, args[1:])
+	case "unlock":
+		return cmdRepoUnlock(ctx, args[1:])
+	case "stats":
+		return cmdRepoStats(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown repo command %q", args[0])
 	}
+}
+
+func cmdRepoInit(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo init")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	return initRepository(ctx, cfg, newLogger(*verbose))
+}
+
+func cmdRepoUnlock(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo unlock")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	if err := resticClient(cfg, newLogger(*verbose)).Unlock(ctx); err != nil {
+		return err
+	}
+	fmt.Println("stale locks removed")
+	return nil
+}
+
+func cmdRepoStats(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo stats")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	mode := stringFlag(fs, "mode", "restore-size", "restore-size, files-by-contents, raw-data or blobs-per-file")
+	asJSON := fs.Bool("json", false, "print stats as JSON")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	switch *mode {
+	case "restore-size", "files-by-contents", "raw-data", "blobs-per-file":
+	default:
+		return fmt.Errorf("unknown stats mode %q", *mode)
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	stats, err := resticClient(cfg, newLogger(*verbose)).Stats(ctx, *mode)
+	if err != nil {
+		return err
+	}
+
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(stats)
+	}
+	fmt.Printf("snapshots: %d\n", stats.SnapshotsCount)
+	fmt.Printf("files:     %d\n", stats.TotalFileCount)
+	fmt.Printf("blobs:     %d\n", stats.TotalBlobCount)
+	fmt.Printf("size:      %s\n", humanBytes(stats.TotalSize))
+	return nil
 }
 
 func initRepository(ctx context.Context, cfg *config.Config, log *slog.Logger) error {

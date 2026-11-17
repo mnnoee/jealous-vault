@@ -115,3 +115,22 @@ func hasResult(report Report, name string, level Level) bool {
 	}
 	return false
 }
+
+func TestUntestedResticVersionWarns(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.ResticBinary = fakeCommand(t, t.TempDir(), "restic", `case "$1" in
+version) echo "restic 0.19.0 fake";;
+cat) exit 0;;
+*) exit 0;;
+esac
+`)
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("version mismatch must be a warning: %+v", report.Results)
+	}
+	if !hasResult(report, "restic", LevelWarn) {
+		t.Errorf("version check did not warn: %+v", report.Results)
+	}
+}
