@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>JealousVault</title></head>
+<body style="font-family: system-ui, sans-serif; color: #222;">
+  <h1 style="margin-bottom: 8px;">JealousVault: {{.Event}} {{.Status}}</h1>
+  <table cellpadding="6" cellspacing="0" style="border-collapse: collapse;">
+    <tr><td><strong>Host</strong></td><td>{{.Host}}</td></tr>
+    <tr><td><strong>Time</strong></td><td>{{.Time}}</td></tr>
+    <tr><td><strong>Duration</strong></td><td>{{.Duration}}</td></tr>
+    <tr><td><strong>Snapshot</strong></td><td>{{.Snapshot}}</td></tr>
+    <tr><td><strong>Files</strong></td><td>{{.Files}}</td></tr>
+    <tr><td><strong>Added</strong></td><td>{{.Bytes}}</td></tr>
+  </table>
+  {{if .Suppressed}}<p>{{.Suppressed}} earlier alerts were suppressed.</p>{{end}}
+  <p style="color: #666; font-size: 12px;">Sent by JealousVault.</p>
+</body>
+</html>

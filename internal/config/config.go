@@ -57,6 +57,8 @@ type Config struct {
 	VerifyTimeout   time.Duration `toml:"-"`
 	VerifyMaxSize   int64         `toml:"-"`
 	VerifyMinFree   int64         `toml:"-"`
+	EmailPassword   string        `toml:"-"`
+	EmailTimeout    time.Duration `toml:"-"`
 }
 
 // Repo describes the restic repository and its credentials.
@@ -149,6 +151,22 @@ type Notify struct {
 	TelegramChatID   string   `toml:"telegram_chat_id"`
 	NotifyOnSuccess  bool     `toml:"notify_on_success"`
 	Timeout          string   `toml:"timeout"`
+	Email            Email    `toml:"email"`
+}
+
+// Email configures the email channel.
+type Email struct {
+	Enabled      bool     `toml:"enabled"`
+	Mode         string   `toml:"mode"`
+	From         string   `toml:"from"`
+	To           []string `toml:"to"`
+	Host         string   `toml:"host"`
+	Port         int      `toml:"port"`
+	Username     string   `toml:"username"`
+	PasswordFile string   `toml:"password_file"`
+	PasswordEnv  string   `toml:"password_env"`
+	Security     string   `toml:"security"`
+	Timeout      string   `toml:"timeout"`
 }
 
 // Default returns a configuration with every non-secret value filled in.
@@ -193,7 +211,15 @@ func Default() *Config {
 		},
 		Backup: Backup{Profile: "host", Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
-		Notify: Notify{Timeout: "10s"},
+		Notify: Notify{
+			Timeout: "10s",
+			Email: Email{
+				Mode:     "local",
+				Port:     25,
+				Security: "starttls",
+				Timeout:  "15s",
+			},
+		},
 	}
 }
 
@@ -313,6 +339,39 @@ func (c *Config) finish() error {
 	if c.Notify.Timeout == "" {
 		c.Notify.Timeout = "10s"
 	}
+	if c.Notify.Email.Mode == "" {
+		c.Notify.Email.Mode = "local"
+	}
+	if c.Notify.Email.Port == 0 {
+		if c.Notify.Email.Mode == "smtp" {
+			c.Notify.Email.Port = 587
+		} else {
+			c.Notify.Email.Port = 25
+		}
+	}
+	if c.Notify.Email.Security == "" {
+		c.Notify.Email.Security = "starttls"
+	}
+	if c.Notify.Email.Timeout == "" {
+		c.Notify.Email.Timeout = "15s"
+	}
+	if c.Notify.Email.Enabled {
+		if c.Notify.Email.PasswordFile != "" && c.Notify.Email.PasswordEnv != "" {
+			return errors.New("notify.email: set only one of password_file and password_env")
+		}
+		if c.Notify.Email.PasswordFile != "" {
+			data, err := os.ReadFile(c.Notify.Email.PasswordFile)
+			if err != nil {
+				return fmt.Errorf("notify.email.password_file: %w", err)
+			}
+			c.EmailPassword = strings.TrimSpace(string(data))
+		} else if c.Notify.Email.PasswordEnv != "" {
+			c.EmailPassword = os.Getenv(c.Notify.Email.PasswordEnv)
+			if c.EmailPassword == "" {
+				return fmt.Errorf("notify.email.password_env %s is empty", c.Notify.Email.PasswordEnv)
+			}
+		}
+	}
 
 	if c.Repository.EnvFile != "" {
 		env, err := LoadEnvFile(c.Repository.EnvFile)
@@ -337,6 +396,9 @@ func (c *Config) finish() error {
 		return err
 	}
 	if c.NotifyTimeout, err = parseDuration("notify.timeout", c.Notify.Timeout); err != nil {
+		return err
+	}
+	if c.EmailTimeout, err = parseDuration("notify.email.timeout", c.Notify.Email.Timeout); err != nil {
 		return err
 	}
 	if c.RandomizedDelay, err = parseDuration("schedule.randomized_delay", c.Schedule.RandomizedDelay); err != nil {
@@ -480,6 +542,11 @@ func (c *Config) Validate() error {
 		!strings.HasPrefix(c.Notify.PingURL, "http://") &&
 		!strings.HasPrefix(c.Notify.PingURL, "https://") {
 		return fmt.Errorf("notify.ping_url %q must be an http or https URL", c.Notify.PingURL)
+	}
+	if c.Notify.Email.Enabled {
+		if err := validateEmail(c.Notify.Email, c.EmailPassword); err != nil {
+			return err
+		}
 	}
 	if c.Notify.FreshnessPingURL != "" &&
 		!strings.HasPrefix(c.Notify.FreshnessPingURL, "http://") &&

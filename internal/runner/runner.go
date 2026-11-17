@@ -50,6 +50,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			PingURL:          cfg.Notify.PingURL,
 			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
 			DedupFile:        cfg.AlertsFile,
+			Email:            notify.EmailOptionsFromConfig(cfg),
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,
 			NotifyOnSuccess:  cfg.Notify.NotifyOnSuccess,

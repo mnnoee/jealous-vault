@@ -1116,6 +1116,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 			notifier := notify.New(notify.Options{
 				Webhooks:        cfg.Notify.Webhooks,
 				DedupFile:       cfg.AlertsFile,
+				Email:           notify.EmailOptionsFromConfig(cfg),
 				TelegramToken:   cfg.Notify.TelegramToken,
 				TelegramChatID:  cfg.Notify.TelegramChatID,
 				NotifyOnSuccess: cfg.Notify.NotifyOnSuccess,
@@ -1299,6 +1300,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	fs := newFlagSet("doctor")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
+	sendTestEmail := fs.Bool("send-test-email", false, "send one test email and report the result")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -1318,6 +1320,14 @@ func cmdDoctor(ctx context.Context, args []string) error {
 	}
 
 	report := doctor.Run(ctx, cfg, doctor.Options{Logger: newLogger(*verbose)})
+	if *sendTestEmail {
+		result := doctor.Result{Name: "email test", Level: doctor.LevelOK, Detail: "test email sent"}
+		if err := notify.SendTestEmail(ctx, notify.EmailOptionsFromConfig(cfg)); err != nil {
+			result = doctor.Result{Name: "email test", Level: doctor.LevelFail, Detail: err.Error()}
+			report.Failed = true
+		}
+		report.Results = append(report.Results, result)
+	}
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1378,6 +1388,7 @@ func cmdFreshness(ctx context.Context, args []string) error {
 			Webhooks:         cfg.Notify.Webhooks,
 			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
 			DedupFile:        cfg.AlertsFile,
+			Email:            notify.EmailOptionsFromConfig(cfg),
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,
 			NotifyOnSuccess:  cfg.Notify.NotifyOnSuccess,

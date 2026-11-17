@@ -84,6 +84,12 @@ paths = ["/etc"]
 	if cfg.Proxmox.Mode != "snapshot" || cfg.Proxmox.KeepLast != 1 || !cfg.Proxmox.All {
 		t.Errorf("proxmox defaults = %+v", cfg.Proxmox)
 	}
+	if cfg.Notify.Email.Mode != "local" || cfg.Notify.Email.Port != 25 {
+		t.Errorf("email defaults = %+v", cfg.Notify.Email)
+	}
+	if cfg.EmailTimeout != 15*time.Second {
+		t.Errorf("email timeout = %s", cfg.EmailTimeout)
+	}
 }
 
 func TestLoadUnknownKey(t *testing.T) {

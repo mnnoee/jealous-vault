@@ -47,6 +47,7 @@ type Options struct {
 	FreshnessPingURL string
 	DedupFile        string
 	Now              func() time.Time
+	Email            EmailOptions
 	TelegramToken    string
 	TelegramChatID   string
 	NotifyOnSuccess  bool
@@ -67,6 +68,7 @@ type Notifier struct {
 	client           *http.Client
 	log              *slog.Logger
 	limiter          *limiter
+	email            *emailSender
 }
 
 // New returns a Notifier. A nil logger discards messages.
@@ -83,7 +85,7 @@ func New(o Options) *Notifier {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	return &Notifier{
+	notifier := &Notifier{
 		webhooks:         append([]string(nil), o.Webhooks...),
 		pingURL:          o.PingURL,
 		freshnessPingURL: o.FreshnessPingURL,
@@ -95,6 +97,10 @@ func New(o Options) *Notifier {
 		log:              log,
 		limiter:          newLimiter(o.DedupFile, o.Now),
 	}
+	if o.Email.Enabled {
+		notifier.email = newEmailSender(o.Email)
+	}
+	return notifier
 }
 
 // Send delivers the event and joins the errors from all channels.
@@ -129,6 +135,11 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 				channelErrs = append(channelErrs, fmt.Errorf("telegram: %w", err))
 			}
 		}
+		if n.email != nil {
+			if err := n.email.Send(ctx, ev); err != nil {
+				channelErrs = append(channelErrs, fmt.Errorf("email: %w", err))
+			}
+		}
 	}
 	if notify && ev.Status != statusSuccess && len(channelErrs) == 0 && n.hasChannels() {
 		if err := n.limiter.MarkSent(ev); err != nil {
@@ -141,7 +152,23 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 }
 
 func (n *Notifier) hasChannels() bool {
-	return len(n.webhooks) > 0 || n.telegramToken != ""
+	return len(n.webhooks) > 0 || n.telegramToken != "" || n.email != nil
+}
+
+// CheckEmail verifies the email channel configuration and connection.
+func (n *Notifier) CheckEmail(ctx context.Context) error {
+	if n.email == nil {
+		return errors.New("email channel is not enabled")
+	}
+	return n.email.Check(ctx)
+}
+
+// TestEmail sends a test email.
+func (n *Notifier) TestEmail(ctx context.Context) error {
+	if n.email == nil {
+		return errors.New("email channel is not enabled")
+	}
+	return n.email.Test(ctx)
 }
 
 func (n *Notifier) sendPing(ctx context.Context, ev Event) error {

@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 )
 
@@ -89,6 +90,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkFreeSpace(stateDir, add)
 	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, add)
 	checkS3Credentials(cfg, add)
+	checkEmail(ctx, cfg, add)
 	checkRetention(cfg, add)
 	if cfg.Proxmox.Enabled {
 		checkProxmox(ctx, cfg, add)
@@ -298,6 +300,17 @@ func checkProxmox(ctx context.Context, cfg *config.Config, add func(string, Leve
 	} else {
 		add("proxmox storage", LevelOK, "pvesm status is readable")
 	}
+}
+
+func checkEmail(ctx context.Context, cfg *config.Config, add func(string, Level, string)) {
+	if !cfg.Notify.Email.Enabled {
+		return
+	}
+	if err := notify.CheckEmail(ctx, notify.EmailOptionsFromConfig(cfg)); err != nil {
+		add("email", LevelFail, err.Error())
+		return
+	}
+	add("email", LevelOK, "MTA or SMTP relay is reachable")
 }
 
 func checkRetention(cfg *config.Config, add func(string, Level, string)) {

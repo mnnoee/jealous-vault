@@ -208,6 +208,22 @@ telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false
 timeout = "10s"
+
+[notify.email]
+# Email is a first class channel. local uses sendmail or localhost:25,
+# smtp uses a relay with tls, starttls or none.
+enabled = false
+mode = "local"
+from = ""
+to = []
+host = ""
+port = 25
+username = ""
+# Set only one: password_file or password_env.
+password_file = ""
+password_env = ""
+security = "starttls"
+timeout = "15s"
 `, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), o.Proxmox)
 
 	return b.String()
