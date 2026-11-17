@@ -152,6 +152,10 @@ keep_last = 3
 keep_daily = 7
 keep_weekly = 4
 keep_monthly = 6
+# Optional: keep snapshots newer than this duration, for example "1y5m7d".
+keep_within = ""
+# Optional: keep every snapshot carrying one of these tags.
+keep_tag = []
 # prune rewrites the repository after forget. Slower, but frees space.
 prune = true
 

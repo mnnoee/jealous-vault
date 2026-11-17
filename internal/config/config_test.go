@@ -375,6 +375,14 @@ func TestRetentionArgs(t *testing.T) {
 		t.Fatalf("args = %q, want %q", got, want)
 	}
 
+	cfg.Retention.KeepWithin = "1y5m7d"
+	cfg.Retention.KeepTag = []string{"important", "weekly"}
+	got = strings.Join(cfg.RetentionArgs(), " ")
+	want = "--keep-last 3 --keep-daily 7 --keep-monthly 6 --keep-within 1y5m7d --keep-tag important --keep-tag weekly"
+	if got != want {
+		t.Fatalf("args with within/tags = %q, want %q", got, want)
+	}
+
 	cfg.Retention = Retention{}
 	if cfg.HasRetention() {
 		t.Fatal("empty retention must not produce forget flags")

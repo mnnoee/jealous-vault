@@ -87,11 +87,13 @@ type Backup struct {
 
 // Retention is passed to restic forget.
 type Retention struct {
-	KeepLast    int  `toml:"keep_last"`
-	KeepDaily   int  `toml:"keep_daily"`
-	KeepWeekly  int  `toml:"keep_weekly"`
-	KeepMonthly int  `toml:"keep_monthly"`
-	Prune       bool `toml:"prune"`
+	KeepLast    int      `toml:"keep_last"`
+	KeepDaily   int      `toml:"keep_daily"`
+	KeepWeekly  int      `toml:"keep_weekly"`
+	KeepMonthly int      `toml:"keep_monthly"`
+	KeepWithin  string   `toml:"keep_within"`
+	KeepTag     []string `toml:"keep_tag"`
+	Prune       bool     `toml:"prune"`
 }
 
 // Schedule drives the generated systemd timer.
@@ -493,6 +495,14 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
 		}
 	}
+	if c.Retention.KeepWithin != "" && strings.ContainsAny(c.Retention.KeepWithin, " \t\n") {
+		return errors.New("retention.keep_within must not contain whitespace")
+	}
+	for i, tag := range c.Retention.KeepTag {
+		if strings.TrimSpace(tag) == "" {
+			return fmt.Errorf("retention.keep_tag[%d] is empty", i)
+		}
+	}
 	switch c.Backup.Profile {
 	case "host", "vm-dumps", "custom":
 	default:
@@ -644,6 +654,12 @@ func (c *Config) RetentionArgs() []string {
 	add("--keep-daily", c.Retention.KeepDaily)
 	add("--keep-weekly", c.Retention.KeepWeekly)
 	add("--keep-monthly", c.Retention.KeepMonthly)
+	if c.Retention.KeepWithin != "" {
+		args = append(args, "--keep-within", c.Retention.KeepWithin)
+	}
+	for _, tag := range c.Retention.KeepTag {
+		args = append(args, "--keep-tag", tag)
+	}
 	return args
 }
 
