@@ -31,6 +31,8 @@ const (
 	VerifyTimer      = "jealous-vault-verify.timer"
 	ProxmoxService   = "jealous-vault-proxmox.service"
 	ProxmoxTimer     = "jealous-vault-proxmox.timer"
+	CopyService      = "jealous-vault-copy.service"
+	CopyTimer        = "jealous-vault-copy.timer"
 )
 
 const checkCalendar = "Sun *-*-* 04:30:00"
@@ -91,6 +93,14 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
+	if cfg.Copy.Enabled {
+		units[CopyService] = copyService(i.BinaryPath, i.ConfigPath)
+		units[CopyTimer] = copyTimer(cfg.Copy.Schedule)
+	} else {
+		for _, name := range []string{CopyTimer, CopyService} {
+			_ = os.Remove(filepath.Join(i.UnitDir, name))
+		}
+	}
 	for name, body := range units {
 		if err := writeFile(filepath.Join(i.UnitDir, name), []byte(body)); err != nil {
 			return err
@@ -111,6 +121,9 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	}
 	if cfg.Proxmox.Enabled {
 		timers = append(timers, ProxmoxTimer)
+	}
+	if cfg.Copy.Enabled {
+		timers = append(timers, CopyTimer)
 	}
 	if err := i.systemctl(ctx, append([]string{"enable", "--now"}, timers...)...); err != nil {
 		return err
@@ -141,6 +154,7 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 		FreshnessTimer, FreshnessService,
 		VerifyTimer, VerifyService,
 		ProxmoxTimer, ProxmoxService,
+		CopyTimer, CopyService,
 	} {
 		path := filepath.Join(i.UnitDir, name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
@@ -158,7 +172,7 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 
 func (i *Installer) installedTimers() []string {
 	var timers []string
-	for _, name := range []string{BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer, ProxmoxTimer} {
+	for _, name := range []string{BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer, ProxmoxTimer, CopyTimer} {
 		if _, err := os.Stat(filepath.Join(i.UnitDir, name)); err == nil {
 			timers = append(timers, name)
 		}
@@ -445,6 +459,42 @@ Unit=%s
 [Install]
 WantedBy=timers.target
 `, schedule, ProxmoxService)
+}
+
+func copyService(binary, configPath string) string {
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault repository copy
+Documentation=https://github.com/mnnoee/jealous-vault
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%s repo copy --config %s
+TimeoutStartSec=0
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+`, quoteArg(binary), quoteArg(configPath))
+}
+
+func copyTimer(schedule string) string {
+	if schedule == "" {
+		schedule = "*-*-* 05:00:00"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault repository copy timer
+
+[Timer]
+OnCalendar=%s
+RandomizedDelaySec=30m
+Persistent=true
+AccuracySec=1m
+Unit=%s
+
+[Install]
+WantedBy=timers.target
+`, schedule, CopyService)
 }
 
 func quoteArg(s string) string {

@@ -128,7 +128,7 @@ Usage:
 
 Commands:
   init          write a config, generate the password and init the repository
-  repo init     initialize the repository for an existing config
+  repo          init, unlock, stats, diff, delete, copy
   install       install the binary, systemd services and timers
   uninstall     stop the timers and remove the unit files
   backup        run a backup now
@@ -282,7 +282,7 @@ func cmdInit(ctx context.Context, args []string) error {
 
 func cmdRepo(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: jealous-vault repo <init|unlock|stats> [--config path]")
+		return errors.New("usage: jealous-vault repo <init|unlock|stats|diff|delete|copy> [--config path]")
 	}
 	switch args[0] {
 	case "init":
@@ -291,6 +291,12 @@ func cmdRepo(ctx context.Context, args []string) error {
 		return cmdRepoUnlock(ctx, args[1:])
 	case "stats":
 		return cmdRepoStats(ctx, args[1:])
+	case "diff":
+		return cmdRepoDiff(ctx, args[1:])
+	case "delete":
+		return cmdRepoDelete(ctx, args[1:])
+	case "copy":
+		return cmdRepoCopy(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown repo command %q", args[0])
 	}
@@ -780,6 +786,158 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func cmdRepoDiff(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo diff")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	asJSON := fs.Bool("json", false, "print restic diff JSON")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: jealous-vault repo diff <snapshot> <snapshot>")
+	}
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	client := resticClient(cfg, newLogger(*verbose))
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		return err
+	}
+	first, err := resolveSnapshot(snapshots, fs.Arg(0), "")
+	if err != nil {
+		return err
+	}
+	second, err := resolveSnapshot(snapshots, fs.Arg(1), "")
+	if err != nil {
+		return err
+	}
+	return client.Diff(ctx, first.ID, second.ID, *asJSON)
+}
+
+func cmdRepoDelete(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo delete")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	yes := fs.Bool("yes", false, "confirm snapshot deletion")
+	prune := fs.Bool("prune", false, "prune unreferenced data after deletion")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 1 {
+		return errors.New("usage: jealous-vault repo delete --yes <snapshot>")
+	}
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "repo delete")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	client := resticClient(cfg, newLogger(*verbose))
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		return err
+	}
+	snapshot, err := resolveSnapshot(snapshots, fs.Arg(0), "")
+	if err != nil {
+		return err
+	}
+	fmt.Printf("snapshot: %s %s %s\n", snapshot.ShortID, snapshot.Time.Local().Format("2006-01-02 15:04"), snapshot.Hostname)
+	if !*yes {
+		return errors.New("refusing to delete a snapshot without --yes")
+	}
+	if err := client.ForgetSnapshot(ctx, snapshot.ID, *prune); err != nil {
+		return err
+	}
+	if *prune {
+		fmt.Println("snapshot deleted and repository pruned")
+	} else {
+		fmt.Println("snapshot deleted, data remains until the next prune")
+	}
+	return nil
+}
+
+func cmdRepoCopy(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo copy")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	all := fs.Bool("all", false, "copy every snapshot instead of only missing ones")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if cfg.Copy.Repository == "" {
+		return errors.New("copy.repository is not configured")
+	}
+	if cfg.Copy.PasswordFile == cfg.Repository.PasswordFile {
+		return errors.New("copy.password_file must differ from the primary repository password")
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "repo copy")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	log := newLogger(*verbose)
+	newOnly := cfg.Copy.NewOnly && !*all
+	dest := restic.CopyDest{
+		Repository:   cfg.Copy.Repository,
+		PasswordFile: cfg.Copy.PasswordFile,
+		Env:          cfg.Copy.Env,
+	}
+	fmt.Printf("copying to %s, new only: %v\n", config.RedactURL(cfg.Copy.Repository), newOnly)
+	err = resticClient(cfg, log).CopyTo(ctx, dest, fs.Args(), newOnly)
+
+	notifier := notify.New(notify.Options{
+		Webhooks:        cfg.Notify.Webhooks,
+		DedupFile:       cfg.AlertsFile,
+		Email:           notify.EmailOptionsFromConfig(cfg),
+		TelegramToken:   cfg.Notify.TelegramToken,
+		TelegramChatID:  cfg.Notify.TelegramChatID,
+		NotifyOnSuccess: cfg.Notify.NotifyOnSuccess,
+		Timeout:         cfg.NotifyTimeout,
+		Logger:          log,
+	})
+	event := notify.Event{Event: "copy", Status: "success", Host: cfg.Host, Time: time.Now()}
+	if err != nil {
+		event.Status = "failed"
+		event.Error = err.Error()
+	}
+	if notifyErr := notifier.Send(ctx, event); notifyErr != nil {
+		fmt.Fprintf(os.Stderr, "jealous-vault: cannot send copy alert: %v\n", notifyErr)
+	}
+	if err != nil {
+		return err
+	}
+	fmt.Println("copy finished")
+	return nil
 }
 
 func cmdSnapshots(ctx context.Context, args []string) error {

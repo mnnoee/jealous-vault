@@ -95,6 +95,9 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	if cfg.Proxmox.Enabled {
 		checkProxmox(ctx, cfg, add)
 	}
+	if cfg.Copy.Enabled {
+		checkCopy(cfg, add)
+	}
 
 	return report
 }
@@ -311,6 +314,22 @@ func checkEmail(ctx context.Context, cfg *config.Config, add func(string, Level,
 		return
 	}
 	add("email", LevelOK, "MTA or SMTP relay is reachable")
+}
+
+func checkCopy(cfg *config.Config, add func(string, Level, string)) {
+	if cfg.Copy.Repository == "" {
+		add("copy", LevelFail, "copy.repository is empty")
+		return
+	}
+	if cfg.Copy.PasswordFile == "" {
+		add("copy", LevelFail, "copy.password_file is empty")
+		return
+	}
+	if _, err := os.Stat(cfg.Copy.PasswordFile); err != nil {
+		add("copy", LevelFail, err.Error())
+		return
+	}
+	add("copy", LevelOK, "destination and password file are configured")
 }
 
 func checkRetention(cfg *config.Config, add func(string, Level, string)) {

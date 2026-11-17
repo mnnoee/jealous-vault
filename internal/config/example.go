@@ -181,6 +181,15 @@ vms = []
 all = true
 storage = "local-lvm"
 
+[copy]
+# Optional second repository for 3-2-1. Use a separate password.
+enabled = false
+schedule = "*-*-* 05:00:00"
+repository = ""
+password_file = ""
+# env_file = "/etc/jealous-vault/copy.env"
+new_only = true
+
 [verify]
 # Scheduled test restore. Skipped when the snapshot or free space exceeds limits.
 enabled = true

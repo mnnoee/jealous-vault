@@ -327,6 +327,118 @@ func (c *Client) Forget(ctx context.Context, policy []string, prune bool) error 
 	return nil
 }
 
+// Diff prints differences between two snapshots.
+func (c *Client) Diff(ctx context.Context, first, second string, asJSON bool) error {
+	args := []string{"diff", first, second}
+	if asJSON {
+		args = append(args, "--json")
+	}
+	cmd := c.command(ctx, args...)
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("restic diff: %w", ctxErr)
+		}
+		return commandError("diff", err, stderr.String())
+	}
+	return nil
+}
+
+// ForgetSnapshot removes one snapshot from the repository.
+func (c *Client) ForgetSnapshot(ctx context.Context, snapshot string, prune bool) error {
+	args := []string{"forget", snapshot}
+	if prune {
+		args = append(args, "--prune")
+	}
+	cmd := c.command(ctx, args...)
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("restic forget: %w", ctxErr)
+		}
+		return commandError("forget", err, stderr.String())
+	}
+	return nil
+}
+
+// CopyDest describes the destination of a restic copy.
+type CopyDest struct {
+	Repository   string
+	PasswordFile string
+	Env          map[string]string
+}
+
+// CopyTo copies snapshots to a second repository. When newOnly is true restic
+// copies only snapshots missing from the destination.
+func (c *Client) CopyTo(ctx context.Context, dest CopyDest, snapshots []string, newOnly bool) error {
+	if dest.Repository == "" {
+		return errors.New("copy destination repository is empty")
+	}
+	if !newOnly && len(snapshots) == 0 {
+		list, err := c.Snapshots(ctx, "")
+		if err != nil {
+			return err
+		}
+		for _, snapshot := range list {
+			snapshots = append(snapshots, snapshot.ID)
+		}
+	}
+
+	args := []string{"copy", "--from-repo", c.repository}
+	if c.passwordFile != "" {
+		args = append(args, "--from-password-file", c.passwordFile)
+	}
+	args = append(args, snapshots...)
+
+	cmd := exec.CommandContext(ctx, c.binary, args...)
+	cmd.Env = copyEnvironment(c.env, dest)
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return fmt.Errorf("restic copy: %w", ctxErr)
+		}
+		return commandError("copy", err, stderr.String())
+	}
+	return nil
+}
+
+func copyEnvironment(source map[string]string, dest CopyDest) []string {
+	blocked := map[string]bool{
+		"RESTIC_REPOSITORY":       true,
+		"RESTIC_PASSWORD_FILE":    true,
+		"RESTIC_PASSWORD":         true,
+		"RESTIC_PASSWORD_COMMAND": true,
+	}
+	var env []string
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if blocked[key] {
+			continue
+		}
+		env = append(env, entry)
+	}
+	for key, value := range source {
+		env = append(env, key+"="+value)
+	}
+	env = append(env, "RESTIC_REPOSITORY="+dest.Repository)
+	if dest.PasswordFile != "" {
+		env = append(env, "RESTIC_PASSWORD_FILE="+dest.PasswordFile)
+	}
+	for key, value := range dest.Env {
+		env = append(env, key+"="+value)
+	}
+	return env
+}
+
 // Init creates the repository. It fails if the repository already exists.
 func (c *Client) Init(ctx context.Context) error {
 	cmd := c.command(ctx, "init")

@@ -262,3 +262,58 @@ fi
 		t.Errorf("args = %q", args)
 	}
 }
+
+func TestDiffAndForget(t *testing.T) {
+	binary, argsFile := fakeRestic(t, ":\n")
+	client := newTestClient(binary, argsFile)
+
+	if err := client.Diff(context.Background(), "a", "b", true); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.ForgetSnapshot(context.Background(), "abc", true); err != nil {
+		t.Fatal(err)
+	}
+	args := readArgs(t, argsFile)
+	if !strings.Contains(args, "diff a b --json") {
+		t.Errorf("diff args = %q", args)
+	}
+	if !strings.Contains(args, "forget abc --prune") {
+		t.Errorf("forget args = %q", args)
+	}
+}
+
+func TestCopyTo(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "restic")
+	argsFile := filepath.Join(dir, "args.log")
+	envFile := filepath.Join(dir, "env.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argsFile + "\n" +
+		"printf '%s|%s\\n' \"$RESTIC_REPOSITORY\" \"$RESTIC_PASSWORD_FILE\" >> " + envFile + "\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := New(Options{
+		Binary:       binary,
+		Repository:   "local:/source",
+		PasswordFile: "/source.pass",
+	})
+	err := client.CopyTo(context.Background(), CopyDest{
+		Repository:   "local:/dest",
+		PasswordFile: "/dest.pass",
+	}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	args, _ := os.ReadFile(argsFile)
+	for _, want := range []string{"copy --from-repo local:/source", "--from-password-file /source.pass"} {
+		if !strings.Contains(string(args), want) {
+			t.Errorf("args %q do not contain %q", args, want)
+		}
+	}
+	env, _ := os.ReadFile(envFile)
+	if strings.TrimSpace(string(env)) != "local:/dest|/dest.pass" {
+		t.Fatalf("destination env = %q", env)
+	}
+}

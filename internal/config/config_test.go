@@ -90,6 +90,9 @@ paths = ["/etc"]
 	if cfg.EmailTimeout != 15*time.Second {
 		t.Errorf("email timeout = %s", cfg.EmailTimeout)
 	}
+	if !cfg.Copy.NewOnly || cfg.Copy.Enabled {
+		t.Errorf("copy defaults = %+v", cfg.Copy)
+	}
 }
 
 func TestLoadUnknownKey(t *testing.T) {
@@ -142,6 +145,20 @@ func TestValidate(t *testing.T) {
 			name: "telegram token without chat",
 			mod:  func(c *Config) { c.Notify.TelegramToken = "token" },
 			want: "telegram",
+		},
+		{
+			name: "copy enabled without repository",
+			mod:  func(c *Config) { c.Copy.Enabled = true },
+			want: "copy.repository",
+		},
+		{
+			name: "copy reuses primary password",
+			mod: func(c *Config) {
+				c.Copy.Enabled = true
+				c.Copy.Repository = "local:/copy"
+				c.Copy.PasswordFile = c.Repository.PasswordFile
+			},
+			want: "must differ",
 		},
 		{
 			name: "unknown proxmox mode",

@@ -192,3 +192,37 @@ func TestInstallProxmoxEnabled(t *testing.T) {
 		t.Errorf("proxmox timer was not enabled:\n%s", log)
 	}
 }
+
+func TestInstallCopyEnabled(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "units")
+	systemctl, logFile := fakeSystemctl(t, dir)
+
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(dir, "state.json")
+	cfg.Copy.Enabled = true
+	cfg.Copy.Repository = "local:/copy"
+	cfg.Copy.PasswordFile = filepath.Join(dir, "copy.pass")
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		UnitDir:    units,
+		Systemctl:  systemctl,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{CopyService, CopyTimer} {
+		if _, err := os.Stat(filepath.Join(units, name)); err != nil {
+			t.Errorf("%s missing: %v", name, err)
+		}
+	}
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), CopyTimer) {
+		t.Errorf("copy timer was not enabled:\n%s", log)
+	}
+}

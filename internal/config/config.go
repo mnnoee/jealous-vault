@@ -43,6 +43,7 @@ type Config struct {
 	Freshness    Freshness `toml:"freshness"`
 	Verify       Verify    `toml:"verify"`
 	Proxmox      Proxmox   `toml:"proxmox"`
+	Copy         Copy      `toml:"copy"`
 	Check        Check     `toml:"check"`
 	Restore      Restore   `toml:"restore"`
 	Notify       Notify    `toml:"notify"`
@@ -130,6 +131,17 @@ type Proxmox struct {
 	Storage  string `toml:"storage"`
 }
 
+// Copy controls the secondary repository.
+type Copy struct {
+	Enabled      bool              `toml:"enabled"`
+	Schedule     string            `toml:"schedule"`
+	Repository   string            `toml:"repository"`
+	PasswordFile string            `toml:"password_file"`
+	EnvFile      string            `toml:"env_file"`
+	Env          map[string]string `toml:"env"`
+	NewOnly      bool              `toml:"new_only"`
+}
+
 // Check controls the integrity check timer.
 type Check struct {
 	ReadDataSubset string `toml:"read_data_subset"`
@@ -199,6 +211,10 @@ func Default() *Config {
 			MinFree:  "20GB",
 			Timeout:  "2h",
 			Schedule: "Sun *-*-* 05:00:00",
+		},
+		Copy: Copy{
+			Schedule: "*-*-* 05:00:00",
+			NewOnly:  true,
 		},
 		Proxmox: Proxmox{
 			Schedule: "*-*-* 02:00:00",
@@ -318,6 +334,18 @@ func (c *Config) finish() error {
 	}
 	if c.Proxmox.Storage == "" {
 		c.Proxmox.Storage = "local-lvm"
+	}
+	if c.Copy.Schedule == "" {
+		c.Copy.Schedule = "*-*-* 05:00:00"
+	}
+	if c.Copy.EnvFile != "" {
+		env, err := LoadEnvFile(c.Copy.EnvFile)
+		if err != nil {
+			return fmt.Errorf("copy env file: %w", err)
+		}
+		if c.Copy.Env == nil {
+			c.Copy.Env = env
+		}
 	}
 	if c.Backup.Profile == "" {
 		c.Backup.Profile = "host"
@@ -444,6 +472,8 @@ func (c *Config) Validate() error {
 		{"repository.sftp_key_file", c.Repository.SFTPKeyFile},
 		{"repository.sftp_known_hosts", c.Repository.SFTPKnownHosts},
 		{"repository.sftp_config", c.Repository.SFTPConfig},
+		{"copy.password_file", c.Copy.PasswordFile},
+		{"copy.env_file", c.Copy.EnvFile},
 	} {
 		if item.path != "" && !filepath.IsAbs(item.path) {
 			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
@@ -523,6 +553,20 @@ func (c *Config) Validate() error {
 	}
 	if c.Proxmox.Storage == "" {
 		return errors.New("proxmox.storage is empty")
+	}
+	if c.Copy.Enabled {
+		if c.Copy.Repository == "" {
+			return errors.New("copy.repository is required when copy is enabled")
+		}
+		if c.Copy.PasswordFile == "" {
+			return errors.New("copy.password_file is required when copy is enabled")
+		}
+		if c.Copy.PasswordFile == c.Repository.PasswordFile {
+			return errors.New("copy.password_file must differ from the primary repository password")
+		}
+		if c.Copy.Schedule == "" {
+			return errors.New("copy.schedule is empty")
+		}
 	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")
