@@ -67,6 +67,20 @@ func TestRunHealthy(t *testing.T) {
 	}
 }
 
+func TestS3InstanceRoleIsNotAWarning(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Repository.URL = "s3:https://s3.example.com/bucket"
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("unexpected failure: %+v", report.Results)
+	}
+	if !hasResult(report, "s3", LevelOK) {
+		t.Errorf("s3 without static keys must be OK: %+v", report.Results)
+	}
+}
+
 func TestRunMissingPath(t *testing.T) {
 	cfg := testConfig(t)
 	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")

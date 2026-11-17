@@ -350,11 +350,18 @@ func checkS3Credentials(cfg *config.Config, add func(string, Level, string)) {
 	if !strings.HasPrefix(cfg.Repository.URL, "s3:") {
 		return
 	}
-	if cfg.Repository.Env["AWS_ACCESS_KEY_ID"] != "" && cfg.Repository.Env["AWS_SECRET_ACCESS_KEY"] != "" {
-		add("s3", LevelOK, "AWS credentials are set")
+	env := cfg.Repository.Env
+	if env["AWS_ACCESS_KEY_ID"] != "" && env["AWS_SECRET_ACCESS_KEY"] != "" {
+		add("s3", LevelOK, "static AWS credentials are set; the repository check verifies them with a real request")
 		return
 	}
-	add("s3", LevelWarn, "AWS credentials are not set in the config env, instance role may still work")
+	for _, key := range []string{"AWS_PROFILE", "AWS_ROLE_ARN", "AWS_WEB_IDENTITY_TOKEN_FILE"} {
+		if env[key] != "" {
+			add("s3", LevelOK, "ambient AWS credentials are configured; the repository check verifies them")
+			return
+		}
+	}
+	add("s3", LevelOK, "no static keys; restic will use the instance role, verified by the repository check")
 }
 
 func checkProxmox(ctx context.Context, cfg *config.Config, add func(string, Level, string)) {
