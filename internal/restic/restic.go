@@ -397,7 +397,7 @@ func (c *Client) CopyTo(ctx context.Context, dest CopyDest, snapshots []string, 
 	args = append(args, snapshots...)
 
 	cmd := exec.CommandContext(ctx, c.binary, args...)
-	cmd.Env = copyEnvironment(c.env, dest)
+	cmd.Env = copyEnvironment(dest)
 	cmd.Stdout = c.out
 	var stderr tailBuffer
 	stderr.max = 64 << 10
@@ -411,7 +411,7 @@ func (c *Client) CopyTo(ctx context.Context, dest CopyDest, snapshots []string, 
 	return nil
 }
 
-func copyEnvironment(source map[string]string, dest CopyDest) []string {
+func copyEnvironment(dest CopyDest) []string {
 	blocked := map[string]bool{
 		"RESTIC_REPOSITORY":       true,
 		"RESTIC_PASSWORD_FILE":    true,
@@ -425,9 +425,6 @@ func copyEnvironment(source map[string]string, dest CopyDest) []string {
 			continue
 		}
 		env = append(env, entry)
-	}
-	for key, value := range source {
-		env = append(env, key+"="+value)
 	}
 	env = append(env, "RESTIC_REPOSITORY="+dest.Repository)
 	if dest.PasswordFile != "" {

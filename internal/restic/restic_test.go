@@ -288,7 +288,7 @@ func TestCopyTo(t *testing.T) {
 	argsFile := filepath.Join(dir, "args.log")
 	envFile := filepath.Join(dir, "env.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argsFile + "\n" +
-		"printf '%s|%s\\n' \"$RESTIC_REPOSITORY\" \"$RESTIC_PASSWORD_FILE\" >> " + envFile + "\n"
+		"printf '%s|%s|%s\\n' \"$RESTIC_REPOSITORY\" \"$RESTIC_PASSWORD_FILE\" \"$RESTIC_TEST_SOURCE\" >> " + envFile + "\n"
 	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -297,6 +297,7 @@ func TestCopyTo(t *testing.T) {
 		Binary:       binary,
 		Repository:   "local:/source",
 		PasswordFile: "/source.pass",
+		Env:          map[string]string{"RESTIC_TEST_SOURCE": "primary-secret"},
 	})
 	err := client.CopyTo(context.Background(), CopyDest{
 		Repository:   "local:/dest",
@@ -313,7 +314,7 @@ func TestCopyTo(t *testing.T) {
 		}
 	}
 	env, _ := os.ReadFile(envFile)
-	if strings.TrimSpace(string(env)) != "local:/dest|/dest.pass" {
+	if strings.TrimSpace(string(env)) != "local:/dest|/dest.pass|" {
 		t.Fatalf("destination env = %q", env)
 	}
 }
