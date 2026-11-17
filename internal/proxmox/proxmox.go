@@ -103,10 +103,28 @@ func (m *Manager) Dump(ctx context.Context, id int) (string, error) {
 	}
 	for _, path := range after {
 		if _, ok := before[path]; !ok && archiveID(path) == id {
+			if err := chmodArchive(path); err != nil {
+				return "", err
+			}
 			return path, nil
 		}
 	}
 	return "", fmt.Errorf("vzdump finished but no archive for %d appeared in %s", id, m.opts.DumpDir)
+}
+
+// chmodArchive keeps guest data readable only by root. vzdump inherits the
+// process umask, which would otherwise leave a 0644 archive in a 0755 dump
+// directory on many hosts.
+func chmodArchive(path string) error {
+	if err := os.Chmod(path, 0o600); err != nil {
+		return err
+	}
+	for _, suffix := range []string{".log", ".notes"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Guests lists QEMU VMs and LXC containers.
@@ -244,7 +262,7 @@ func archives(dir string) ([]string, error) {
 	}
 	var paths []string
 	for _, entry := range entries {
-		if entry.IsDir() {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
 			continue
 		}
 		name := entry.Name()

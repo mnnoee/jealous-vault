@@ -49,6 +49,13 @@ printf '%s\n' "$*" >> `+argsFile+`
 	if !strings.HasSuffix(archive, "vzdump-qemu-100-2026_11_17-02_00_00.vma.zst") {
 		t.Fatalf("archive = %q", archive)
 	}
+	info, err := os.Stat(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("archive mode = %o, want 600", info.Mode().Perm())
+	}
 	args, err := os.ReadFile(argsFile)
 	if err != nil {
 		t.Fatal(err)
