@@ -1,0 +1,111 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+# The Forgejo artifact API is not reachable from this runner (the internal CA
+# is missing from the artifact client trust store), so the build and publish
+# steps share one job. Tools and actions are pinned, the checkout token is not
+# persisted, and the release token is only present in the final step.
+jobs:
+  release:
+    runs-on: ci
+    container:
+      image: jealous-vault-ci:1
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: test
+        run: go test ./...
+
+      - name: build
+        run: |
+          set -eu
+          VERSION="${GITHUB_REF_NAME}"
+          COMMIT="${GITHUB_SHA::12}"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}"
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/jealous-vault-linux-amd64 ./cmd/jealous-vault
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/jealous-vault-linux-arm64 ./cmd/jealous-vault
+
+      - name: licenses
+        run: |
+          set -eu
+          command -v go-licenses >/dev/null || go install github.com/google/go-licenses@v1.6.0
+          go-licenses report ./... --template build/licenses.tmpl \
+            > dist/THIRD-PARTY-LICENSES.md
+
+      - name: checksums
+        run: |
+          set -eu
+          cd dist
+          sha256sum jealous-vault-linux-amd64 jealous-vault-linux-arm64 \
+            THIRD-PARTY-LICENSES.md > SHA256SUMS
+
+      - name: sign
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          BASH_ENV: /dev/null
+          ENV: /dev/null
+        run: |
+          set -eu
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "RELEASE_SIGNING_KEY is empty"
+            exit 1
+          fi
+          key="$RUNNER_TEMP/release-signing-key"
+          printf '%s\n' "$SIGNING_KEY" > "$key"
+          chmod 600 "$key"
+          ssh-keygen -Y sign -f "$key" -n jealous-vault-release dist/SHA256SUMS
+          ssh-keygen -Y verify -f build/allowed_signers -I release \
+            -n jealous-vault-release -s dist/SHA256SUMS.sig < dist/SHA256SUMS
+
+      - name: release
+        env:
+          TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+          BASH_ENV: /dev/null
+          ENV: /dev/null
+        run: |
+          set -eu
+          if [ -z "$TOKEN" ]; then
+            echo "RELEASE_TOKEN is empty"
+            exit 1
+          fi
+          prerelease=false
+          case "$TAG" in
+            *-*) prerelease=true ;;
+          esac
+          payload=$(TAG="$TAG" PRERELEASE="$prerelease" python3 -c \
+            'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "name": os.environ["TAG"], "prerelease": os.environ["PRERELEASE"] == "true"}))')
+          api="https://git.larch.home.arpa/api/v1/repos/mnnoee/jealous-vault"
+          release_id=$(curl -fsS --retry 3 \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$payload" \
+            "$api/releases" | python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])')
+          for file in \
+            jealous-vault-linux-amd64 \
+            jealous-vault-linux-arm64 \
+            THIRD-PARTY-LICENSES.md \
+            SHA256SUMS \
+            SHA256SUMS.sig; do
+            test -f "dist/$file"
+            curl -fsS --retry 3 \
+              -H "Authorization: token $TOKEN" \
+              -F "attachment=@dist/$file" \
+              "$api/releases/$release_id/assets?name=$file" >/dev/null
+          done
+          echo "release $TAG created with 5 assets"

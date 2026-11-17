@@ -1,0 +1,48 @@
+name: ci
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ci
+    container:
+      image: jealous-vault-ci:1
+    env:
+      GOTOOLCHAIN: local
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: vet
+        run: go vet ./...
+
+      - name: test
+        run: go test ./...
+
+      - name: govulncheck
+        run: |
+          set -eu
+          command -v govulncheck >/dev/null || go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
+
+      - name: licenses
+        run: |
+          set -eu
+          command -v go-licenses >/dev/null || go install github.com/google/go-licenses@v1.6.0
+          go-licenses check ./... \
+            --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC,Unlicense
+
+      - name: build
+        run: |
+          set -eu
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o dist/jealous-vault-linux-amd64 ./cmd/jealous-vault
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "-s -w" \
+            -o dist/jealous-vault-linux-arm64 ./cmd/jealous-vault
