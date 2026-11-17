@@ -6,6 +6,9 @@ package main
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/restic"
 )
 
 func TestSplitComma(t *testing.T) {
@@ -40,5 +43,37 @@ func TestExitCode(t *testing.T) {
 	}
 	if got := exitCode(nil); got != 0 {
 		t.Errorf("nil error code = %d", got)
+	}
+}
+
+func TestResolveSnapshot(t *testing.T) {
+	now := time.Now()
+	snapshots := []restic.Snapshot{
+		{ID: "aaaa1111", ShortID: "aaaa", Hostname: "node-1", Time: now.Add(-time.Hour)},
+		{ID: "bbbb2222", ShortID: "bbbb", Hostname: "node-1", Time: now},
+		{ID: "cccc3333", ShortID: "cccc", Hostname: "node-2", Time: now.Add(time.Hour)},
+	}
+
+	latest, err := resolveSnapshot(snapshots, "latest", "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest.ID != "bbbb2222" {
+		t.Errorf("latest = %q", latest.ID)
+	}
+
+	byPrefix, err := resolveSnapshot(snapshots, "aaaa", "node-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if byPrefix.ID != "aaaa1111" {
+		t.Errorf("prefix = %q", byPrefix.ID)
+	}
+
+	if _, err := resolveSnapshot(snapshots, "cccc", "node-1"); err == nil {
+		t.Error("snapshot from another host must not resolve")
+	}
+	if _, err := resolveSnapshot(snapshots, "dddd", "node-1"); err == nil {
+		t.Error("missing snapshot must not resolve")
 	}
 }

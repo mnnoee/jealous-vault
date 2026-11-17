@@ -85,6 +85,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdBackup(ctx, args[1:])
 	case "snapshots":
 		return cmdSnapshots(ctx, args[1:])
+	case "mount":
+		return cmdMount(ctx, args[1:])
 	case "restore":
 		return cmdRestore(ctx, args[1:])
 	case "test-restore":
@@ -119,6 +121,7 @@ Commands:
   uninstall     stop the timers and remove the unit files
   backup        run a backup now
   snapshots     list snapshots in the repository
+  mount         mount a snapshot read-only through FUSE
   restore       restore a snapshot or the latest one
   test-restore  restore into a separate directory
   check         verify repository integrity
@@ -476,6 +479,90 @@ func cmdSnapshots(ctx context.Context, args []string) error {
 		)
 	}
 	return w.Flush()
+}
+
+func cmdMount(ctx context.Context, args []string) error {
+	fs := newFlagSet("mount")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: jealous-vault mount <snapshot|latest> <mountpoint>")
+	}
+	snapshotRef := fs.Arg(0)
+	target := fs.Arg(1)
+	if !filepath.IsAbs(target) {
+		return fmt.Errorf("mountpoint %q must be an absolute path", target)
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	client := resticClient(cfg, newLogger(*verbose))
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		return err
+	}
+	snapshot, err := resolveSnapshot(snapshots, snapshotRef, cfg.Host)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(target)
+	switch {
+	case os.IsNotExist(err):
+		if err := os.MkdirAll(target, 0o750); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	case !info.IsDir():
+		return fmt.Errorf("mountpoint %q is not a directory", target)
+	}
+
+	fmt.Printf("mounting repository at %s\n", target)
+	displayID := snapshot.ShortID
+	if displayID == "" {
+		displayID = snapshot.ID
+	}
+	fmt.Printf("snapshot %s is available at %s/ids/%s\n", displayID, target, displayID)
+	fmt.Println("press Ctrl-C to unmount")
+	return client.Mount(ctx, target, os.Stdout, os.Stderr)
+}
+
+func resolveSnapshot(snapshots []restic.Snapshot, ref, host string) (restic.Snapshot, error) {
+	var candidates []restic.Snapshot
+	for _, s := range snapshots {
+		if host == "" || s.Hostname == host {
+			candidates = append(candidates, s)
+		}
+	}
+	if len(candidates) == 0 {
+		return restic.Snapshot{}, fmt.Errorf("no snapshots for host %s", host)
+	}
+
+	if ref == "" || ref == "latest" {
+		newest := candidates[0]
+		for _, s := range candidates[1:] {
+			if s.Time.After(newest.Time) {
+				newest = s
+			}
+		}
+		return newest, nil
+	}
+
+	needle := strings.ToLower(ref)
+	for _, s := range candidates {
+		id := strings.ToLower(s.ID)
+		short := strings.ToLower(s.ShortID)
+		if id == needle || short == needle || strings.HasPrefix(id, needle) {
+			return s, nil
+		}
+	}
+	return restic.Snapshot{}, fmt.Errorf("snapshot %q not found", ref)
 }
 
 type stringList []string

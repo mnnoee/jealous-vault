@@ -382,6 +382,21 @@ func (c *Client) Unlock(ctx context.Context) error {
 	return nil
 }
 
+// Mount exposes the repository read-only through FUSE until the context ends.
+func (c *Client) Mount(ctx context.Context, target string, stdout, stderr io.Writer) error {
+	cmd := c.command(ctx, "mount", target)
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
+		return fmt.Errorf("restic mount: %w", err)
+	}
+	return nil
+}
+
 // IsLockError reports whether restic failed because the repository is locked.
 func IsLockError(err error) bool {
 	if err == nil {

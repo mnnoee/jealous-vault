@@ -4,6 +4,7 @@
 package restic
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -161,6 +162,19 @@ func TestRestoreArgs(t *testing.T) {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q do not contain %q", args, want)
 		}
+	}
+}
+
+func TestMountArgs(t *testing.T) {
+	binary, argsFile := fakeRestic(t, "echo mounted\n")
+	client := newTestClient(binary, argsFile)
+
+	var out bytes.Buffer
+	if err := client.Mount(context.Background(), "/mnt/jv", &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if args := readArgs(t, argsFile); !strings.Contains(args, "mount /mnt/jv") {
+		t.Errorf("args = %q", args)
 	}
 }
 
