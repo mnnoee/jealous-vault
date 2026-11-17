@@ -58,7 +58,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			Timeout:          cfg.NotifyTimeout,
 			Logger:           log,
 		}),
-		store: state.Store{Path: cfg.StateFile},
+		store: state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile},
 		log:   log,
 		now:   time.Now,
 	}

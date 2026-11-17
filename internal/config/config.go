@@ -33,6 +33,7 @@ const (
 type Config struct {
 	Host         string    `toml:"host"`
 	StateFile    string    `toml:"state_file"`
+	HistoryFile  string    `toml:"history_file"`
 	LockFile     string    `toml:"lock_file"`
 	AlertsFile   string    `toml:"alerts_file"`
 	ResticBinary string    `toml:"restic_binary"`
@@ -293,6 +294,9 @@ func (c *Config) finish() error {
 	if c.StateFile == "" {
 		c.StateFile = DefaultStateFile
 	}
+	if c.HistoryFile == "" {
+		c.HistoryFile = filepath.Join(filepath.Dir(c.StateFile), "history.jsonl")
+	}
 	if c.LockFile == "" {
 		c.LockFile = filepath.Join(filepath.Dir(c.StateFile), "backup.lock")
 	}
@@ -499,6 +503,7 @@ func (c *Config) Validate() error {
 		path string
 	}{
 		{"state_file", c.StateFile},
+		{"history_file", c.HistoryFile},
 		{"lock_file", c.LockFile},
 		{"alerts_file", c.AlertsFile},
 		{"repository.password_file", c.Repository.PasswordFile},

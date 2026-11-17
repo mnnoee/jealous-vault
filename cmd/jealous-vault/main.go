@@ -109,6 +109,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdFreshness(ctx, args[1:])
 	case "status":
 		return cmdStatus(args[1:])
+	case "history":
+		return cmdHistory(args[1:])
 	case "version":
 		fmt.Printf("jealous-vault %s (commit %s, built %s)\n", version, commit, date)
 		return nil
@@ -142,6 +144,7 @@ Commands:
   doctor        check restic, config, repository, paths and timers
   freshness     check the backup age and the backup timer
   status        show the last run and whether the backup is fresh
+  history       show recent backup, check and verify runs
   version       print version information
 
 Run "jealous-vault <command> --help" for command flags.
@@ -1316,7 +1319,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	}
 	log := newLogger(*verbose)
 	client := resticClient(cfg, log)
-	store := state.Store{Path: cfg.StateFile}
+	store := state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile}
 	run := state.Run{Kind: state.KindVerify, StartedAt: now, Status: state.StatusFailed}
 	var snapshotID string
 
@@ -1741,6 +1744,54 @@ func cmdStatus(args []string) error {
 		return &exitError{code: 1, err: fmt.Errorf("no successful backup within %s", maxAge.String())}
 	}
 	return nil
+}
+
+func cmdHistory(args []string) error {
+	fs := newFlagSet("history")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	limit := fs.Int("limit", 20, "number of runs to show, 0 for all")
+	asJSON := fs.Bool("json", false, "print the history as JSON")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	runs, err := (state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile}).History(*limit)
+	if err != nil {
+		return err
+	}
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(runs)
+	}
+	if len(runs) == 0 {
+		fmt.Println("no runs recorded")
+		return nil
+	}
+	w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+	fmt.Fprintln(w, "TIME	KIND	STATUS	DURATION	SNAPSHOT	ERROR")
+	for _, run := range runs {
+		snapshot := run.SnapshotID
+		if len(snapshot) > 12 {
+			snapshot = snapshot[:12]
+		}
+		fmt.Fprintf(w, "%s	%s	%s	%s	%s	%s\n",
+			run.FinishedAt.Local().Format("2006-01-02 15:04:05"),
+			run.Kind,
+			run.Status,
+			time.Duration(run.DurationSeconds*float64(time.Second)).Round(time.Second),
+			snapshot,
+			truncate(run.Error, 60),
+		)
+	}
+	return w.Flush()
 }
 
 func printStatusLine(label string, run *state.Run, now time.Time) {

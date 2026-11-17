@@ -112,6 +112,7 @@ func RenderExample(o InitOptions) string {
 
 host = %s
 state_file = %s
+history_file = %s
 lock_file = %s
 alerts_file = %s
 restic_binary = "restic"
@@ -254,7 +255,7 @@ password_file = ""
 password_env = ""
 security = "starttls"
 timeout = "15s"
-`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), o.Proxmox)
+`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), o.Proxmox)
 
 	return b.String()
 }

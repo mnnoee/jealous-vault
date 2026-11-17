@@ -5,6 +5,8 @@
 package state
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,10 +52,16 @@ type State struct {
 	LastVerify  *Run `json:"last_verify,omitempty"`
 }
 
-// Store reads and writes a state file.
+// Store reads and writes the current state and the append-only run history.
 type Store struct {
-	Path string
+	Path        string
+	HistoryPath string
 }
+
+const (
+	maxHistoryBytes = 4 << 20
+	keepHistoryRuns = 2000
+)
 
 // Load returns an empty state when the file does not exist yet.
 func (s Store) Load() (*State, error) {
@@ -123,5 +131,119 @@ func (s Store) Record(run Run) (*State, error) {
 	if err := s.Save(st); err != nil {
 		return nil, err
 	}
+	if err := s.Append(run); err != nil {
+		return st, err
+	}
 	return st, nil
+}
+
+func (s Store) historyPath() string {
+	if s.HistoryPath != "" {
+		return s.HistoryPath
+	}
+	return filepath.Join(filepath.Dir(s.Path), "history.jsonl")
+}
+
+// Append adds one run to the JSONL history and rotates the file when it grows
+// past maxHistoryBytes. The caller normally holds the run lock already.
+func (s Store) Append(run Run) error {
+	path := s.historyPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	if info, err := os.Stat(path); err == nil && info.Size() >= maxHistoryBytes {
+		if err := s.rotateHistory(path); err != nil {
+			return err
+		}
+	}
+	line, err := json.Marshal(run)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if err := f.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := f.Write(append(line, '\n')); err != nil {
+		return err
+	}
+	return f.Sync()
+}
+
+// History returns the newest limit runs in chronological order. A limit of
+// zero returns everything.
+func (s Store) History(limit int) ([]Run, error) {
+	path := s.historyPath()
+	f, err := os.Open(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	var runs []Run
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 64<<10), 1<<20)
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var run Run
+		if err := json.Unmarshal(line, &run); err != nil {
+			return nil, fmt.Errorf("parse %s: %w", path, err)
+		}
+		runs = append(runs, run)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if limit > 0 && len(runs) > limit {
+		runs = runs[len(runs)-limit:]
+	}
+	return runs, nil
+}
+
+func (s Store) rotateHistory(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	lines := bytes.Split(data, []byte{'\n'})
+	start := 0
+	if len(lines) > keepHistoryRuns {
+		start = len(lines) - keepHistoryRuns
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".history-*")
+	if err != nil {
+		return err
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	for _, line := range lines[start:] {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
+		}
+		if _, err := tmp.Write(append(line, '\n')); err != nil {
+			tmp.Close()
+			return err
+		}
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmpName, path)
 }
