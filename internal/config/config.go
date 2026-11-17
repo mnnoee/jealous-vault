@@ -161,6 +161,7 @@ type Notify struct {
 	FreshnessPingURL string   `toml:"freshness_ping_url"`
 	TelegramToken    string   `toml:"telegram_token"`
 	TelegramChatID   string   `toml:"telegram_chat_id"`
+	TelegramChatIDs  []string `toml:"telegram_chat_ids"`
 	NotifyOnSuccess  bool     `toml:"notify_on_success"`
 	Timeout          string   `toml:"timeout"`
 	Email            Email    `toml:"email"`
@@ -574,8 +575,17 @@ func (c *Config) Validate() error {
 	if c.CheckTimeout <= 0 {
 		return errors.New("check.timeout must be positive")
 	}
-	if (c.Notify.TelegramToken == "") != (c.Notify.TelegramChatID == "") {
-		return errors.New("notify.telegram_token and notify.telegram_chat_id must be set together")
+	chats := append([]string(nil), c.Notify.TelegramChatIDs...)
+	if c.Notify.TelegramChatID != "" {
+		chats = append(chats, c.Notify.TelegramChatID)
+	}
+	if (c.Notify.TelegramToken == "") != (len(chats) == 0) {
+		return errors.New("notify.telegram_token and at least one chat id must be set together")
+	}
+	for _, chat := range chats {
+		if err := validateTelegramChat(chat); err != nil {
+			return err
+		}
 	}
 	for _, u := range c.Notify.Webhooks {
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {

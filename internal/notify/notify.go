@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -55,6 +56,8 @@ type Options struct {
 	Email            EmailOptions
 	TelegramToken    string
 	TelegramChatID   string
+	TelegramChatIDs  []string
+	TelegramAPIBase  string
 	NotifyOnSuccess  bool
 	Timeout          time.Duration
 	Client           *http.Client
@@ -67,7 +70,8 @@ type Notifier struct {
 	pingURL          string
 	freshnessPingURL string
 	telegramToken    string
-	telegramChatID   string
+	telegramChats    []telegramChat
+	telegramAPIBase  string
 	notifyOnSuccess  bool
 	timeout          time.Duration
 	client           *http.Client
@@ -95,7 +99,8 @@ func New(o Options) *Notifier {
 		pingURL:          o.PingURL,
 		freshnessPingURL: o.FreshnessPingURL,
 		telegramToken:    o.TelegramToken,
-		telegramChatID:   o.TelegramChatID,
+		telegramChats:    parseTelegramChats(o.TelegramChatID, o.TelegramChatIDs, log),
+		telegramAPIBase:  firstNonEmptyString(o.TelegramAPIBase, "https://api.telegram.org"),
 		notifyOnSuccess:  o.NotifyOnSuccess,
 		timeout:          timeout,
 		client:           client,
@@ -136,7 +141,7 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 				sent = true
 			}
 		}
-		if n.telegramToken != "" {
+		if n.telegramToken != "" && len(n.telegramChats) > 0 {
 			if err := n.telegram(ctx, ev); err != nil {
 				channelErrs = append(channelErrs, fmt.Errorf("telegram: %w", err))
 			} else {
@@ -162,7 +167,7 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 }
 
 func (n *Notifier) hasChannels() bool {
-	return len(n.webhooks) > 0 || n.telegramToken != "" || n.email != nil
+	return len(n.webhooks) > 0 || (n.telegramToken != "" && len(n.telegramChats) > 0) || n.email != nil
 }
 
 // CheckEmail verifies the email channel configuration and connection.
@@ -218,31 +223,41 @@ func (n *Notifier) postJSON(ctx context.Context, endpoint string, ev Event) erro
 }
 
 func (n *Notifier) telegram(ctx context.Context, ev Event) error {
-	endpoint := "https://api.telegram.org/bot" + n.telegramToken + "/sendMessage"
-	form := url.Values{}
-	form.Set("chat_id", n.telegramChatID)
-	form.Set("text", truncate(ev.Text(), 4000))
-	form.Set("disable_web_page_preview", "true")
-
-	return n.withRetry(ctx, func() error {
-		reqCtx, cancel := context.WithTimeout(ctx, n.timeout)
-		defer cancel()
-
-		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint,
-			strings.NewReader(form.Encode()))
-		if err != nil {
-			return err
+	var errs []error
+	for _, chat := range n.telegramChats {
+		form := url.Values{}
+		form.Set("chat_id", chat.ID)
+		if chat.ThreadID > 0 {
+			form.Set("message_thread_id", strconv.Itoa(chat.ThreadID))
 		}
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.Header.Set("User-Agent", "jealous-vault")
+		form.Set("text", truncate(ev.Text(), 4000))
+		form.Set("disable_web_page_preview", "true")
+		endpoint := n.telegramAPIBase + "/bot" + n.telegramToken + "/sendMessage"
 
-		resp, err := n.client.Do(req)
+		err := n.withRetry(ctx, func() error {
+			reqCtx, cancel := context.WithTimeout(ctx, n.timeout)
+			defer cancel()
+
+			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint,
+				strings.NewReader(form.Encode()))
+			if err != nil {
+				return err
+			}
+			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			req.Header.Set("User-Agent", "jealous-vault")
+
+			resp, err := n.client.Do(req)
+			if err != nil {
+				return err
+			}
+			defer resp.Body.Close()
+			return responseError(resp)
+		})
 		if err != nil {
-			return err
+			errs = append(errs, fmt.Errorf("chat %s: %w", chat.ID, err))
 		}
-		defer resp.Body.Close()
-		return responseError(resp)
-	})
+	}
+	return errors.Join(errs...)
 }
 
 func (n *Notifier) pingEndpoint(event string) string {

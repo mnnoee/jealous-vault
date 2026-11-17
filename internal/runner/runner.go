@@ -53,6 +53,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			Email:            notify.EmailOptionsFromConfig(cfg),
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,
+			TelegramChatIDs:  cfg.Notify.TelegramChatIDs,
 			NotifyOnSuccess:  cfg.Notify.NotifyOnSuccess,
 			Timeout:          cfg.NotifyTimeout,
 			Logger:           log,

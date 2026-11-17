@@ -214,7 +214,10 @@ ping_url = ""
 # Separate check for the freshness timer, so its death is visible too.
 freshness_ping_url = ""
 telegram_token = ""
+# One or more chat IDs. A group is a negative number.
+# Forum topic: "-1001234567890:42".
 telegram_chat_id = ""
+telegram_chat_ids = []
 notify_on_success = false
 timeout = "10s"
 

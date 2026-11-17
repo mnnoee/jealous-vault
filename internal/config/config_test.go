@@ -538,3 +538,38 @@ func TestRenderExampleProxmox(t *testing.T) {
 		t.Errorf("dump dir = %q", cfg.Proxmox.DumpDir)
 	}
 }
+
+func TestTelegramChats(t *testing.T) {
+	cfg := validConfigForValidation()
+	cfg.Notify.TelegramToken = "token"
+	cfg.Notify.TelegramChatIDs = []string{"1909549916", "-5365208231", "-1001234567890:42"}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("valid chats rejected: %v", err)
+	}
+
+	for _, invalid := range []string{"abc", "123:0", "123:-1", ""} {
+		cfg := validConfigForValidation()
+		cfg.Notify.TelegramToken = "token"
+		cfg.Notify.TelegramChatIDs = []string{invalid}
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("chat %q was accepted", invalid)
+		}
+	}
+}
+
+func validConfigForValidation() *Config {
+	cfg := Default()
+	cfg.Repository.URL = "local:/srv/repo"
+	cfg.Repository.PasswordFile = "/tmp/pass"
+	cfg.Backup.Paths = []string{"/etc"}
+	cfg.BackupTimeout = time.Hour
+	cfg.CheckTimeout = time.Hour
+	cfg.NotifyTimeout = time.Second
+	cfg.RandomizedDelay = time.Hour
+	cfg.FreshnessMaxAge = 25 * time.Hour
+	cfg.VerifyTimeout = 2 * time.Hour
+	cfg.VerifyMaxSize = 10_000_000_000
+	cfg.VerifyMinFree = 20_000_000_000
+	cfg.EmailTimeout = 15 * time.Second
+	return cfg
+}
