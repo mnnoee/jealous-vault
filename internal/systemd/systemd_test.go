@@ -74,6 +74,11 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	if !strings.Contains(string(service), "TimeoutStartSec=0") {
 		t.Errorf("long backups would be killed by the default timeout:\n%s", service)
 	}
+	for _, want := range []string{"NoNewPrivileges=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes", "UMask=0077"} {
+		if !strings.Contains(string(service), want) {
+			t.Errorf("service does not contain %q:\n%s", want, service)
+		}
+	}
 
 	log, err := os.ReadFile(logFile)
 	if err != nil {

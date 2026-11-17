@@ -79,15 +79,15 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	}
 
 	units := map[string]string{
-		BackupService:    backupService(i.BinaryPath, i.ConfigPath),
+		BackupService:    hardened(backupService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
 		BackupTimer:      backupTimer(cfg.Schedule.OnCalendar, cfg.Schedule.RandomizedDelay),
-		CheckService:     checkService(i.BinaryPath, i.ConfigPath),
+		CheckService:     hardened(checkService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
 		CheckTimer:       checkTimer(),
-		FreshnessService: freshnessService(i.BinaryPath, i.ConfigPath),
+		FreshnessService: hardened(freshnessService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
 		FreshnessTimer:   freshnessTimer(cfg.Freshness.Schedule),
 	}
 	if cfg.Verify.Enabled {
-		units[VerifyService] = verifyService(i.BinaryPath, i.ConfigPath)
+		units[VerifyService] = hardened(verifyService(i.BinaryPath, i.ConfigPath), "")
 		units[VerifyTimer] = verifyTimer(cfg.Verify.Schedule)
 	} else {
 		for _, name := range []string{VerifyTimer, VerifyService} {
@@ -98,7 +98,7 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
 		}
-		units[ProxmoxService] = proxmoxService(i.BinaryPath, i.ConfigPath)
+		units[ProxmoxService] = hardened(proxmoxService(i.BinaryPath, i.ConfigPath), "")
 		units[ProxmoxTimer] = proxmoxTimer(cfg.Proxmox.Schedule)
 	} else {
 		for _, name := range []string{ProxmoxTimer, ProxmoxService} {
@@ -106,7 +106,7 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if cfg.Copy.Enabled {
-		units[CopyService] = copyService(i.BinaryPath, i.ConfigPath)
+		units[CopyService] = hardened(copyService(i.BinaryPath, i.ConfigPath), "UMask=0077\n")
 		units[CopyTimer] = copyTimer(cfg.Copy.Schedule)
 	} else {
 		for _, name := range []string{CopyTimer, CopyService} {
@@ -408,6 +408,21 @@ func writeFile(path string, body []byte) error {
 		return err
 	}
 	return os.Rename(tmpName, path)
+}
+
+const serviceHardening = `NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+`
+
+// hardened adds the common sandboxing options to a service. The agent needs
+// root to read the whole filesystem and to restore it, so the options focus on
+// blocking privilege escalation and kernel changes instead of hiding paths.
+func hardened(body, extra string) string {
+	marker := "IOSchedulingPriority=7\n"
+	return strings.Replace(body, marker, marker+extra+serviceHardening, 1)
 }
 
 func backupService(binary, configPath string) string {
