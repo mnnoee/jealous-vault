@@ -265,6 +265,7 @@ func (s *emailSender) Test(ctx context.Context) error {
 }
 
 func (s *emailSender) message(ev Event) ([]byte, error) {
+	ev.Normalize()
 	data := struct {
 		Event      string
 		Status     string
@@ -275,6 +276,11 @@ func (s *emailSender) message(ev Event) ([]byte, error) {
 		Files      int
 		Bytes      string
 		Error      string
+		Summary    string
+		Class      string
+		Code       int
+		Detail     string
+		Action     string
 		Warnings   []string
 		Suppressed int
 	}{
@@ -287,6 +293,11 @@ func (s *emailSender) message(ev Event) ([]byte, error) {
 		Files:      ev.FilesNew,
 		Bytes:      humanBytes(ev.BytesAdded),
 		Error:      ev.Error,
+		Summary:    ev.ErrorSummary,
+		Class:      ev.ErrorClass,
+		Code:       ev.ErrorCode,
+		Detail:     ev.ErrorDetail,
+		Action:     ev.Action,
 		Warnings:   ev.Warnings,
 		Suppressed: ev.Suppressed,
 	}

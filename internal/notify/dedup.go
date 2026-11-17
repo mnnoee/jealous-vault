@@ -97,7 +97,7 @@ func (l *limiter) MarkSent(ev Event) error {
 	key := alertKey(ev)
 	state.Records[key] = alertRecord{
 		Event:           ev.Event,
-		ErrorHash:       hashError(ev.Error),
+		ErrorHash:       hashError(errorSignature(ev)),
 		LastSent:        l.now(),
 		CooldownSeconds: int64(cooldownFor(ev.Event) / time.Second),
 		Suppressed:      0,
@@ -106,7 +106,17 @@ func (l *limiter) MarkSent(ev Event) error {
 }
 
 func alertKey(ev Event) string {
-	return ev.Host + "|" + ev.Event + "|" + hashError(ev.Error)
+	return ev.Host + "|" + ev.Event + "|" + hashError(errorSignature(ev))
+}
+
+func errorSignature(ev Event) string {
+	if ev.ErrorClass != "" && ev.ErrorClass != "unknown" {
+		return ev.ErrorClass
+	}
+	if ev.ErrorSummary != "" {
+		return ev.ErrorSummary
+	}
+	return ev.Error
 }
 
 func hashError(text string) string {

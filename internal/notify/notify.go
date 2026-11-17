@@ -36,6 +36,11 @@ type Event struct {
 	DurationSeconds float64   `json:"duration_seconds"`
 	Warnings        []string  `json:"warnings,omitempty"`
 	Error           string    `json:"error,omitempty"`
+	ErrorSummary    string    `json:"error_summary,omitempty"`
+	ErrorClass      string    `json:"error_class,omitempty"`
+	ErrorCode       int       `json:"error_code,omitempty"`
+	ErrorDetail     string    `json:"error_detail,omitempty"`
+	Action          string    `json:"action,omitempty"`
 	Suppressed      int       `json:"suppressed,omitempty"`
 	Time            time.Time `json:"time"`
 }
@@ -105,9 +110,7 @@ func New(o Options) *Notifier {
 
 // Send delivers the event and joins the errors from all channels.
 func (n *Notifier) Send(ctx context.Context, ev Event) error {
-	if ev.Time.IsZero() {
-		ev.Time = time.Now()
-	}
+	ev.Normalize()
 
 	notify := ev.Status != statusSuccess || n.notifyOnSuccess || len(ev.Warnings) > 0
 
@@ -328,30 +331,6 @@ func responseError(resp *http.Response) error {
 }
 
 // Text renders a short human readable message for chat channels.
-func (e Event) Text() string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "[JealousVault] %s %s on %s", e.Event, e.Status, e.Host)
-	if e.Snapshot != "" {
-		fmt.Fprintf(&b, ", snapshot %s", e.Snapshot)
-	}
-	if e.BytesAdded > 0 {
-		fmt.Fprintf(&b, ", added %s", humanBytes(e.BytesAdded))
-	}
-	if e.DurationSeconds > 0 {
-		fmt.Fprintf(&b, ", took %s", time.Duration(e.DurationSeconds*float64(time.Second)).Round(time.Second))
-	}
-	if e.Error != "" {
-		fmt.Fprintf(&b, "\nerror: %s", e.Error)
-	}
-	for _, w := range e.Warnings {
-		fmt.Fprintf(&b, "\nwarning: %s", w)
-	}
-	if e.Suppressed > 0 {
-		fmt.Fprintf(&b, "\n%d earlier alerts suppressed", e.Suppressed)
-	}
-	return b.String()
-}
-
 func humanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {

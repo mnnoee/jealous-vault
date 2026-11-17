@@ -9,7 +9,10 @@
     <tr><td><strong>Duration</strong></td><td>{{.Duration}}</td></tr>
     <tr><td><strong>Snapshot</strong></td><td>{{.Snapshot}}</td></tr>
   </table>
-  {{if .Error}}<h2 style="color: #b00020;">Error</h2><pre style="white-space: pre-wrap;">{{.Error}}</pre>{{end}}
+  {{if .Summary}}<h2 style="color: #b00020;">Error</h2><p><strong>{{.Summary}}</strong></p>{{end}}
+  {{if .Class}}<p>Class: <code>{{.Class}}</code>{{if .Code}} (code {{.Code}}){{end}}</p>{{end}}
+  {{if .Detail}}<pre style="white-space: pre-wrap;">{{.Detail}}</pre>{{end}}
+  {{if .Action}}<p>{{.Action}}</p>{{end}}
   {{if .Warnings}}<h2>Warnings</h2><ul>{{range .Warnings}}<li>{{.}}</li>{{end}}</ul>{{end}}
   {{if .Suppressed}}<p>{{.Suppressed}} earlier alerts were suppressed.</p>{{end}}
   <p>Run <code>jealous-vault doctor</code> to diagnose.</p>
