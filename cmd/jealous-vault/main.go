@@ -73,7 +73,9 @@ func run(ctx context.Context, args []string) error {
 	}
 	switch args[0] {
 	case "init":
-		return cmdInit(args[1:])
+		return cmdInit(ctx, args[1:])
+	case "repo":
+		return cmdRepo(ctx, args[1:])
 	case "install":
 		return cmdInstall(ctx, args[1:])
 	case "uninstall":
@@ -108,7 +110,8 @@ Usage:
   jealous-vault <command> [flags]
 
 Commands:
-  init          write a config and generate the repository password
+  init          write a config, generate the password and init the repository
+  repo init     initialize the repository for an existing config
   install       install the binary, systemd services and timers
   uninstall     stop the timers and remove the unit files
   backup        run a backup now
@@ -160,7 +163,7 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 	})
 }
 
-func cmdInit(args []string) error {
+func cmdInit(ctx context.Context, args []string) error {
 	fs := newFlagSet("init")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file to write")
 	host := stringFlag(fs, "host", "", "host name recorded in snapshots, defaults to the system hostname")
@@ -169,11 +172,16 @@ func cmdInit(args []string) error {
 	passwordFile := stringFlag(fs, "password-file", "", "file that will hold the repository password")
 	stateFile := stringFlag(fs, "state-file", config.DefaultStateFile, "file that will hold the last run state")
 	force := fs.Bool("force", false, "overwrite an existing configuration")
+	noRepoInit := fs.Bool("no-repo-init", false, "only write the config and password")
+	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if *repoURL == "" && !*noRepoInit {
+		return errors.New("pass --repo to initialize the repository, or --no-repo-init to only write the config")
 	}
 
 	pwPath, err := writeInitialConfig(*configPath, config.InitOptions{
@@ -189,9 +197,62 @@ func cmdInit(args []string) error {
 
 	fmt.Printf("config:   %s\n", *configPath)
 	fmt.Printf("password: %s\n", pwPath)
+	if *noRepoInit {
+		fmt.Println()
+		fmt.Println("Repository not initialized. Edit the config, then run:")
+		fmt.Println("  jealous-vault repo init")
+		return nil
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := initRepository(ctx, cfg, newLogger(*verbose)); err != nil {
+		return err
+	}
+
 	fmt.Println()
-	fmt.Println("Review the config, then initialize the repository and install the timers:")
-	fmt.Println("  jealous-vault install --init-repo")
+	fmt.Println("Next steps:")
+	fmt.Println("  jealous-vault install")
+	fmt.Println("  jealous-vault backup")
+	return nil
+}
+
+func cmdRepo(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: jealous-vault repo init [--config path]")
+	}
+	switch args[0] {
+	case "init":
+		fs := newFlagSet("repo init")
+		configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+		verbose := fs.Bool("verbose", false, "debug logging")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+		}
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		return initRepository(ctx, cfg, newLogger(*verbose))
+	default:
+		return fmt.Errorf("unknown repo command %q", args[0])
+	}
+}
+
+func initRepository(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
+	if err := resticClient(cfg, log).Init(ctx); err != nil {
+		if alreadyInitialized(err) {
+			fmt.Println("repository already initialized")
+			return nil
+		}
+		return err
+	}
+	fmt.Println("repository initialized")
 	return nil
 }
 
@@ -226,11 +287,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	fs := newFlagSet("install")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	prefix := stringFlag(fs, "prefix", "/usr/local/bin", "directory for the binary")
-	repoURL := stringFlag(fs, "repo", "", "repository URL, used when the config does not exist")
-	paths := stringFlag(fs, "paths", "", "comma separated paths, used when the config does not exist")
-	host := stringFlag(fs, "host", "", "host name, used when the config does not exist")
 	noStart := fs.Bool("no-start", false, "write units but do not start the timers")
-	initRepo := fs.Bool("init-repo", false, "initialize the restic repository if needed")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
 		return err
@@ -240,22 +297,10 @@ func cmdInstall(ctx context.Context, args []string) error {
 	}
 
 	if _, err := os.Stat(*configPath); err != nil {
-		if !os.IsNotExist(err) {
-			return err
+		if os.IsNotExist(err) {
+			return fmt.Errorf("%s not found, run \"jealous-vault init\" first", *configPath)
 		}
-		if *repoURL == "" {
-			return fmt.Errorf("%s not found, run \"jealous-vault init\" first or pass --repo", *configPath)
-		}
-		pwPath, err := writeInitialConfig(*configPath, config.InitOptions{
-			Host:          *host,
-			RepositoryURL: *repoURL,
-			Paths:         splitComma(*paths),
-		}, false)
-		if err != nil {
-			return err
-		}
-		fmt.Printf("config:   %s\n", *configPath)
-		fmt.Printf("password: %s\n", pwPath)
+		return err
 	}
 
 	cfg, err := loadConfig(*configPath)
@@ -265,18 +310,6 @@ func cmdInstall(ctx context.Context, args []string) error {
 	log := newLogger(*verbose)
 	if _, lookErr := exec.LookPath(cfg.ResticBinary); lookErr != nil {
 		fmt.Fprintf(os.Stderr, "warning: %s not found in PATH, install restic before the first backup\n", cfg.ResticBinary)
-	}
-
-	if *initRepo {
-		client := resticClient(cfg, log)
-		if err := client.Init(ctx); err != nil {
-			if !alreadyInitialized(err) {
-				return err
-			}
-			fmt.Println("repository already initialized")
-		} else {
-			fmt.Println("repository initialized")
-		}
 	}
 
 	installer := &systemd.Installer{
