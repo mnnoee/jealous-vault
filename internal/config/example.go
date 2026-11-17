@@ -111,6 +111,7 @@ func RenderExample(o InitOptions) string {
 host = %s
 state_file = %s
 lock_file = %s
+alerts_file = %s
 restic_binary = "restic"
 
 [repository]
@@ -183,7 +184,7 @@ telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false
 timeout = "10s"
-`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes))
+`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes))
 
 	return b.String()
 }

@@ -36,6 +36,7 @@ type Event struct {
 	DurationSeconds float64   `json:"duration_seconds"`
 	Warnings        []string  `json:"warnings,omitempty"`
 	Error           string    `json:"error,omitempty"`
+	Suppressed      int       `json:"suppressed,omitempty"`
 	Time            time.Time `json:"time"`
 }
 
@@ -44,6 +45,8 @@ type Options struct {
 	Webhooks         []string
 	PingURL          string
 	FreshnessPingURL string
+	DedupFile        string
+	Now              func() time.Time
 	TelegramToken    string
 	TelegramChatID   string
 	NotifyOnSuccess  bool
@@ -63,6 +66,7 @@ type Notifier struct {
 	timeout          time.Duration
 	client           *http.Client
 	log              *slog.Logger
+	limiter          *limiter
 }
 
 // New returns a Notifier. A nil logger discards messages.
@@ -89,6 +93,7 @@ func New(o Options) *Notifier {
 		timeout:          timeout,
 		client:           client,
 		log:              log,
+		limiter:          newLimiter(o.DedupFile, o.Now),
 	}
 }
 
@@ -99,26 +104,55 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 	}
 
 	notify := ev.Status != statusSuccess || n.notifyOnSuccess || len(ev.Warnings) > 0
-	var errs []error
+
+	if notify && ev.Status != statusSuccess {
+		allowed, suppressed, err := n.limiter.Allow(ev)
+		if err != nil {
+			n.log.Warn("alert deduplication failed", "error", err)
+		}
+		if !allowed {
+			n.log.Info("alert suppressed", "event", ev.Event, "suppressed", suppressed)
+			return n.sendPing(ctx, ev)
+		}
+		ev.Suppressed = suppressed
+	}
+
+	var channelErrs []error
 	if notify {
 		for _, hook := range n.webhooks {
 			if err := n.postJSON(ctx, hook, ev); err != nil {
-				errs = append(errs, fmt.Errorf("webhook %s: %w", hook, err))
+				channelErrs = append(channelErrs, fmt.Errorf("webhook %s: %w", hook, err))
 			}
 		}
 		if n.telegramToken != "" {
 			if err := n.telegram(ctx, ev); err != nil {
-				errs = append(errs, fmt.Errorf("telegram: %w", err))
+				channelErrs = append(channelErrs, fmt.Errorf("telegram: %w", err))
 			}
 		}
 	}
-
-	if endpoint := n.pingEndpoint(ev.Event); endpoint != "" {
-		if err := n.ping(ctx, endpoint, ev); err != nil {
-			errs = append(errs, fmt.Errorf("ping: %w", err))
+	if notify && ev.Status != statusSuccess && len(channelErrs) == 0 && n.hasChannels() {
+		if err := n.limiter.MarkSent(ev); err != nil {
+			n.log.Warn("cannot save alert deduplication state", "error", err)
 		}
 	}
-	return errors.Join(errs...)
+
+	pingErr := n.sendPing(ctx, ev)
+	return errors.Join(append(channelErrs, pingErr)...)
+}
+
+func (n *Notifier) hasChannels() bool {
+	return len(n.webhooks) > 0 || n.telegramToken != ""
+}
+
+func (n *Notifier) sendPing(ctx context.Context, ev Event) error {
+	endpoint := n.pingEndpoint(ev.Event)
+	if endpoint == "" {
+		return nil
+	}
+	if err := n.ping(ctx, endpoint, ev); err != nil {
+		return fmt.Errorf("ping: %w", err)
+	}
+	return nil
 }
 
 func (n *Notifier) postJSON(ctx context.Context, endpoint string, ev Event) error {
@@ -277,6 +311,9 @@ func (e Event) Text() string {
 	}
 	for _, w := range e.Warnings {
 		fmt.Fprintf(&b, "\nwarning: %s", w)
+	}
+	if e.Suppressed > 0 {
+		fmt.Fprintf(&b, "\n%d earlier alerts suppressed", e.Suppressed)
 	}
 	return b.String()
 }

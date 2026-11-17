@@ -34,6 +34,7 @@ type Config struct {
 	Host         string    `toml:"host"`
 	StateFile    string    `toml:"state_file"`
 	LockFile     string    `toml:"lock_file"`
+	AlertsFile   string    `toml:"alerts_file"`
 	ResticBinary string    `toml:"restic_binary"`
 	Repository   Repo      `toml:"repository"`
 	Backup       Backup    `toml:"backup"`
@@ -198,6 +199,9 @@ func (c *Config) finish() error {
 	if c.LockFile == "" {
 		c.LockFile = filepath.Join(filepath.Dir(c.StateFile), "backup.lock")
 	}
+	if c.AlertsFile == "" {
+		c.AlertsFile = filepath.Join(filepath.Dir(c.StateFile), "alerts.json")
+	}
 	if c.ResticBinary == "" {
 		c.ResticBinary = DefaultResticBinary
 	}
@@ -287,6 +291,7 @@ func (c *Config) Validate() error {
 	}{
 		{"state_file", c.StateFile},
 		{"lock_file", c.LockFile},
+		{"alerts_file", c.AlertsFile},
 		{"repository.password_file", c.Repository.PasswordFile},
 		{"repository.env_file", c.Repository.EnvFile},
 		{"repository.sftp_key_file", c.Repository.SFTPKeyFile},

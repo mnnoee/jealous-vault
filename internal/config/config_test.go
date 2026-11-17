@@ -48,6 +48,9 @@ paths = ["/etc"]
 	if cfg.LockFile != "/tmp/backup.lock" {
 		t.Errorf("lock file = %q, want /tmp/backup.lock", cfg.LockFile)
 	}
+	if cfg.AlertsFile != "/tmp/alerts.json" {
+		t.Errorf("alerts file = %q, want /tmp/alerts.json", cfg.AlertsFile)
+	}
 	if cfg.BackupTimeout != 6*time.Hour {
 		t.Errorf("backup timeout = %s, want 6h", cfg.BackupTimeout)
 	}
@@ -126,6 +129,11 @@ func TestValidate(t *testing.T) {
 			name: "unknown profile",
 			mod:  func(c *Config) { c.Backup.Profile = "everything" },
 			want: "backup.profile",
+		},
+		{
+			name: "relative alerts file",
+			mod:  func(c *Config) { c.AlertsFile = "alerts.json" },
+			want: "alerts_file",
 		},
 		{
 			name: "relative lock file",

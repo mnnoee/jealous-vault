@@ -985,6 +985,7 @@ func cmdFreshness(ctx context.Context, args []string) error {
 		notifier := notify.New(notify.Options{
 			Webhooks:         cfg.Notify.Webhooks,
 			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
+			DedupFile:        cfg.AlertsFile,
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,
 			NotifyOnSuccess:  cfg.Notify.NotifyOnSuccess,
