@@ -227,6 +227,10 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add
 		systemctl = "systemctl"
 	}
 	if _, err := exec.LookPath(systemctl); err != nil {
+		if _, rcErr := exec.LookPath("rc-update"); rcErr == nil {
+			checkOpenRC(ctx, add)
+			return
+		}
 		add("systemd", LevelWarn, "systemctl not found, timers not checked")
 		return
 	}
@@ -254,6 +258,28 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, add
 		return
 	}
 	add("systemd", LevelOK, "configured timers are enabled and active")
+}
+
+func checkOpenRC(ctx context.Context, add func(string, Level, string)) {
+	var missing []string
+	for _, path := range []string{
+		"/etc/periodic/daily/jealous-vault-backup",
+		"/etc/periodic/weekly/jealous-vault-check",
+	} {
+		if _, err := os.Stat(path); err != nil {
+			missing = append(missing, path)
+		}
+	}
+	if len(missing) > 0 {
+		add("init", LevelWarn, "periodic jobs missing: "+strings.Join(missing, ", "))
+		return
+	}
+	cmd := exec.CommandContext(ctx, "rc-service", "crond", "status")
+	if err := cmd.Run(); err != nil {
+		add("init", LevelWarn, "OpenRC periodic jobs installed but crond is not running")
+		return
+	}
+	add("init", LevelOK, "OpenRC periodic jobs installed and crond is running")
 }
 
 func systemctlRun(ctx context.Context, systemctl string, args ...string) error {

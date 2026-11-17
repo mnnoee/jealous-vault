@@ -226,3 +226,68 @@ func TestInstallCopyEnabled(t *testing.T) {
 		t.Errorf("copy timer was not enabled:\n%s", log)
 	}
 }
+
+func TestInstallOpenRC(t *testing.T) {
+	dir := t.TempDir()
+	periodic := filepath.Join(dir, "periodic")
+	binary := filepath.Join(dir, "bin", "jealous-vault")
+	configPath := filepath.Join(dir, "config.toml")
+	logFile := filepath.Join(dir, "rc.log")
+	rcUpdate := filepath.Join(dir, "rc-update")
+	rcService := filepath.Join(dir, "rc-service")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + logFile + "\n"
+	if err := os.WriteFile(rcUpdate, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rcService, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(dir, "state.json")
+
+	installer := &Installer{
+		BinaryPath:  binary,
+		ConfigPath:  configPath,
+		Init:        "openrc",
+		RCUpdate:    rcUpdate,
+		RCService:   rcService,
+		PeriodicDir: periodic,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{
+		filepath.Join(periodic, "daily", "jealous-vault-backup"),
+		filepath.Join(periodic, "weekly", "jealous-vault-check"),
+		filepath.Join(periodic, "daily", "jealous-vault-freshness"),
+		filepath.Join(periodic, "weekly", "jealous-vault-verify"),
+	} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Errorf("%s missing: %v", path, err)
+			continue
+		}
+		if info.Mode().Perm()&0o111 == 0 {
+			t.Errorf("%s is not executable", path)
+		}
+	}
+
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"add crond default", "crond start"} {
+		if !strings.Contains(string(log), want) {
+			t.Errorf("rc log does not contain %q:\n%s", want, log)
+		}
+	}
+
+	if err := installer.Uninstall(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(periodic, "daily", "jealous-vault-backup")); !os.IsNotExist(err) {
+		t.Fatal("periodic backup script was not removed")
+	}
+}

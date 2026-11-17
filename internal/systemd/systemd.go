@@ -39,13 +39,17 @@ const checkCalendar = "Sun *-*-* 04:30:00"
 
 // Installer writes units and asks systemctl to load them.
 type Installer struct {
-	BinaryPath string
-	ConfigPath string
-	UnitDir    string
-	Systemctl  string
-	SkipStart  bool
-	Out        io.Writer
-	Log        *slog.Logger
+	BinaryPath  string
+	ConfigPath  string
+	UnitDir     string
+	Systemctl   string
+	Init        string
+	RCUpdate    string
+	RCService   string
+	PeriodicDir string
+	SkipStart   bool
+	Out         io.Writer
+	Log         *slog.Logger
 }
 
 // Install copies the binary, writes the units and starts the timers.
@@ -66,6 +70,14 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		return err
 	}
 
+	switch i.initSystem() {
+	case "openrc":
+		return i.installOpenRC(ctx, cfg, out)
+	case "systemd":
+	default:
+		return errors.New("neither systemctl nor rc-update found, cannot install services")
+	}
+
 	units := map[string]string{
 		BackupService:    backupService(i.BinaryPath, i.ConfigPath),
 		BackupTimer:      backupTimer(cfg.Schedule.OnCalendar, cfg.Schedule.RandomizedDelay),
@@ -83,7 +95,7 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if cfg.Proxmox.Enabled {
-		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o750); err != nil {
+		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
 		}
 		units[ProxmoxService] = proxmoxService(i.BinaryPath, i.ConfigPath)
@@ -140,6 +152,9 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	if out == nil {
 		out = io.Discard
 	}
+	if i.initSystem() == "openrc" {
+		return i.uninstallOpenRC(out)
+	}
 
 	timers := i.installedTimers()
 	var errs []error
@@ -170,6 +185,94 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	return join(errs)
 }
 
+func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out io.Writer) error {
+	scripts := map[string]string{
+		filepath.Join(i.PeriodicDir, "daily", "jealous-vault-backup"):    periodicScript(i.BinaryPath, "backup", i.ConfigPath),
+		filepath.Join(i.PeriodicDir, "weekly", "jealous-vault-check"):    periodicScript(i.BinaryPath, "check", i.ConfigPath),
+		filepath.Join(i.PeriodicDir, "daily", "jealous-vault-freshness"): periodicScript(i.BinaryPath, "freshness", i.ConfigPath),
+	}
+	if cfg.Verify.Enabled {
+		scripts[filepath.Join(i.PeriodicDir, "weekly", "jealous-vault-verify")] = periodicScript(i.BinaryPath, "test-restore", i.ConfigPath)
+	}
+	if cfg.Proxmox.Enabled {
+		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
+			return err
+		}
+		scripts[filepath.Join(i.PeriodicDir, "daily", "jealous-vault-proxmox")] = periodicScript(i.BinaryPath, "vzdump", i.ConfigPath)
+	}
+	if cfg.Copy.Enabled {
+		scripts[filepath.Join(i.PeriodicDir, "daily", "jealous-vault-copy")] = periodicScript(i.BinaryPath, "repo copy", i.ConfigPath)
+	}
+	for path, body := range scripts {
+		if err := writeFile(path, []byte(body)); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, 0o755); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "wrote %s\n", path)
+	}
+	for _, name := range []string{"jealous-vault-verify", "jealous-vault-proxmox", "jealous-vault-copy"} {
+		if _, ok := scripts[filepath.Join(i.PeriodicDir, "daily", name)]; ok {
+			continue
+		}
+		if _, ok := scripts[filepath.Join(i.PeriodicDir, "weekly", name)]; ok {
+			continue
+		}
+		_ = os.Remove(filepath.Join(i.PeriodicDir, "daily", name))
+		_ = os.Remove(filepath.Join(i.PeriodicDir, "weekly", name))
+	}
+	if i.SkipStart {
+		fmt.Fprintln(out, "periodic scripts written but not started (--no-start)")
+		return nil
+	}
+	if err := i.runRC(ctx, i.RCUpdate, "add", "crond", "default"); err != nil {
+		return err
+	}
+	if err := i.runRC(ctx, i.RCService, "crond", "start"); err != nil {
+		return err
+	}
+	fmt.Fprintln(out, "OpenRC periodic jobs enabled")
+	return nil
+}
+
+func (i *Installer) uninstallOpenRC(out io.Writer) error {
+	for _, period := range []string{"daily", "weekly"} {
+		for _, name := range []string{
+			"jealous-vault-backup", "jealous-vault-check", "jealous-vault-freshness",
+			"jealous-vault-verify", "jealous-vault-proxmox", "jealous-vault-copy",
+		} {
+			path := filepath.Join(i.PeriodicDir, period, name)
+			if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+				return err
+			} else {
+				fmt.Fprintf(out, "removed %s\n", path)
+			}
+		}
+	}
+	fmt.Fprintf(out, "kept %s\n", i.ConfigPath)
+	return nil
+}
+
+func (i *Installer) runRC(ctx context.Context, bin string, args ...string) error {
+	cmd := exec.CommandContext(ctx, bin, args...)
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s %s: %w: %s", bin, strings.Join(args, " "), err, strings.TrimSpace(output.String()))
+	}
+	return nil
+}
+
+func periodicScript(binary, command, configPath string) string {
+	return "#!/bin/sh\nexec " + shellQuote(binary) + " " + command + " --config " + shellQuote(configPath) + "\n"
+}
+
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func (i *Installer) installedTimers() []string {
 	var timers []string
 	for _, name := range []string{BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer, ProxmoxTimer, CopyTimer} {
@@ -193,6 +296,28 @@ func (i *Installer) defaults() {
 	if i.Systemctl == "" {
 		i.Systemctl = "systemctl"
 	}
+	if i.RCUpdate == "" {
+		i.RCUpdate = "rc-update"
+	}
+	if i.RCService == "" {
+		i.RCService = "rc-service"
+	}
+	if i.PeriodicDir == "" {
+		i.PeriodicDir = "/etc/periodic"
+	}
+}
+
+func (i *Installer) initSystem() string {
+	if i.Init != "" {
+		return i.Init
+	}
+	if _, err := exec.LookPath(i.Systemctl); err == nil {
+		return "systemd"
+	}
+	if _, err := exec.LookPath(i.RCUpdate); err == nil {
+		return "openrc"
+	}
+	return "unknown"
 }
 
 func (i *Installer) installBinary() error {
