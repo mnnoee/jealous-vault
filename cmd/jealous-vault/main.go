@@ -601,7 +601,7 @@ type statusOutput struct {
 func cmdStatus(args []string) error {
 	fs := newFlagSet("status")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
-	maxAge := fs.Duration("max-age", 36*time.Hour, "fail when the last successful backup is older than this")
+	maxAge := fs.Duration("max-age", 25*time.Hour, "fail when the last successful backup is older than this")
 	asJSON := fs.Bool("json", false, "print status as JSON")
 	if err := fs.Parse(args); err != nil {
 		return err

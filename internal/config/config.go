@@ -122,7 +122,7 @@ func Default() *Config {
 		},
 		Schedule: Schedule{
 			OnCalendar:      "*-*-* 03:30:00",
-			RandomizedDelay: "15m",
+			RandomizedDelay: "1h",
 		},
 		Backup: Backup{Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
@@ -182,7 +182,7 @@ func (c *Config) finish() error {
 		c.Schedule.OnCalendar = "*-*-* 03:30:00"
 	}
 	if c.Schedule.RandomizedDelay == "" {
-		c.Schedule.RandomizedDelay = "15m"
+		c.Schedule.RandomizedDelay = "1h"
 	}
 	if c.Backup.Timeout == "" {
 		c.Backup.Timeout = "6h"

@@ -54,7 +54,7 @@ paths = ["/etc"]
 	if cfg.Schedule.OnCalendar != "*-*-* 03:30:00" {
 		t.Errorf("schedule = %q", cfg.Schedule.OnCalendar)
 	}
-	if cfg.RandomizedDelay != 15*time.Minute {
+	if cfg.RandomizedDelay != time.Hour {
 		t.Errorf("randomized delay = %s", cfg.RandomizedDelay)
 	}
 }

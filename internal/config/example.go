@@ -84,7 +84,7 @@ prune = true
 
 [schedule]
 on_calendar = "*-*-* 03:30:00"
-randomized_delay = "15m"
+randomized_delay = "1h"
 
 [check]
 # Optional subset for partial data verification, for example "5%%".
