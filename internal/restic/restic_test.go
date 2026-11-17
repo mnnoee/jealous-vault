@@ -322,3 +322,24 @@ func TestCopyTo(t *testing.T) {
 		t.Fatalf("destination env = %q", env)
 	}
 }
+
+func TestKeyCommands(t *testing.T) {
+	binary, argsFile := fakeRestic(t, ":\n")
+	client := newTestClient(binary, argsFile)
+
+	if err := client.AddKey(context.Background(), "/new.pass"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Keys(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RemoveKey(context.Background(), "abcd1234"); err != nil {
+		t.Fatal(err)
+	}
+	args := readArgs(t, argsFile)
+	for _, want := range []string{"key add --new-password-file /new.pass", "key list", "key remove abcd1234"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args %q do not contain %q", args, want)
+		}
+	}
+}
