@@ -22,6 +22,7 @@ type InitOptions struct {
 	Excludes       []string
 	SFTPKeyFile    string
 	SFTPKnownHosts string
+	Proxmox        bool
 }
 
 // Preset is a set of default paths and excludes for a backup profile.
@@ -168,6 +169,18 @@ schedule = "*-*-* 00,06,12,18:15:00"
 read_data_subset = ""
 timeout = "2h"
 
+[proxmox]
+# Set true on a Proxmox host to install the vzdump timer.
+enabled = %t
+schedule = "*-*-* 02:00:00"
+dump_dir = "/var/lib/vz/dump/jealous-vault"
+mode = "snapshot"                 # snapshot, suspend or stop
+compress = "zstd"                 # zstd, gzip, lzo or none
+keep_last = 1
+vms = []
+all = true
+storage = "local-lvm"
+
 [verify]
 # Scheduled test restore. Skipped when the snapshot or free space exceeds limits.
 enabled = true
@@ -195,7 +208,7 @@ telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false
 timeout = "10s"
-`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes))
+`, quote(host), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), o.Proxmox)
 
 	return b.String()
 }

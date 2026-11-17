@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"text/tabwriter"
@@ -28,6 +29,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/hooks"
 	"github.com/mnnoee/jealous-vault/internal/lock"
 	"github.com/mnnoee/jealous-vault/internal/notify"
+	"github.com/mnnoee/jealous-vault/internal/proxmox"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
@@ -87,6 +89,10 @@ func run(ctx context.Context, args []string) error {
 		return cmdUninstall(ctx, args[1:])
 	case "backup":
 		return cmdBackup(ctx, args[1:])
+	case "vzdump":
+		return cmdVzdump(ctx, args[1:])
+	case "restore-vm":
+		return cmdRestoreVM(ctx, args[1:])
 	case "snapshots":
 		return cmdSnapshots(ctx, args[1:])
 	case "mount":
@@ -126,6 +132,8 @@ Commands:
   install       install the binary, systemd services and timers
   uninstall     stop the timers and remove the unit files
   backup        run a backup now
+  vzdump        dump Proxmox VMs and back the archives up
+  restore-vm    restore a VM or CT archive from a snapshot
   snapshots     list snapshots in the repository
   mount         mount a snapshot read-only through FUSE
   restore       restore a snapshot or the latest one
@@ -213,6 +221,7 @@ func cmdInit(ctx context.Context, args []string) error {
 	stateFile := stringFlag(fs, "state-file", config.DefaultStateFile, "file that will hold the last run state")
 	sftpKey := stringFlag(fs, "sftp-key", "", "private key for sftp repositories")
 	sftpKnownHosts := stringFlag(fs, "sftp-known-hosts", "", "known_hosts file for sftp repositories")
+	proxmox := fs.Bool("proxmox", false, "enable the Proxmox vzdump timer")
 	force := fs.Bool("force", false, "overwrite an existing configuration")
 	noRepoInit := fs.Bool("no-repo-init", false, "only write the config and password")
 	verbose := fs.Bool("verbose", false, "debug logging")
@@ -241,6 +250,7 @@ func cmdInit(ctx context.Context, args []string) error {
 		Excludes:       splitComma(*excludes),
 		SFTPKeyFile:    *sftpKey,
 		SFTPKnownHosts: *sftpKnownHosts,
+		Proxmox:        *proxmox,
 	}, *force)
 	if err != nil {
 		return err
@@ -567,6 +577,209 @@ func printRun(run state.Run) {
 	if run.Error != "" {
 		fmt.Printf("  error:    %s\n", run.Error)
 	}
+}
+
+func cmdVzdump(ctx context.Context, args []string) error {
+	fs := newFlagSet("vzdump")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	all := fs.Bool("all", false, "dump every VM and CT")
+	mode := stringFlag(fs, "mode", "", "override proxmox.mode")
+	compress := stringFlag(fs, "compress", "", "override proxmox.compress")
+	keep := fs.Int("keep", -1, "override proxmox.keep_last")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "vzdump")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	log := newLogger(*verbose)
+	manager := proxmox.New(proxmox.Options{
+		DumpDir:  cfg.Proxmox.DumpDir,
+		Mode:     firstNonEmpty(*mode, cfg.Proxmox.Mode),
+		Compress: firstNonEmpty(*compress, cfg.Proxmox.Compress),
+		Storage:  cfg.Proxmox.Storage,
+		Logger:   log,
+	})
+	ids, err := selectGuestIDs(ctx, cfg, fs.Args(), *all, manager)
+	if err != nil {
+		return err
+	}
+
+	var archives []string
+	for _, id := range ids {
+		fmt.Printf("dumping %d\n", id)
+		archive, err := manager.Dump(ctx, id)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("  archive: %s\n", archive)
+		archives = append(archives, archive)
+	}
+
+	backupCfg := *cfg
+	backupCfg.Backup.Paths = archives
+	backupCfg.Backup.Excludes = nil
+	backupCfg.Backup.PreHooks = nil
+	backupCfg.Backup.PostHooks = nil
+	backupCfg.Backup.Profile = "custom"
+	backupCfg.Backup.Tags = append(append([]string(nil), cfg.Backup.Tags...), "vzdump")
+	for _, id := range ids {
+		backupCfg.Backup.Tags = append(backupCfg.Backup.Tags, fmt.Sprintf("vmid-%d", id))
+	}
+
+	run, err := runner.New(&backupCfg, log, os.Stderr).Backup(ctx)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "jealous-vault: dump backup failed, archives kept in %s\n", cfg.Proxmox.DumpDir)
+		return err
+	}
+	fmt.Printf("backup %s, snapshot %s\n", run.Status, run.SnapshotID)
+
+	keepLast := cfg.Proxmox.KeepLast
+	if *keep >= 0 {
+		keepLast = *keep
+	}
+	if err := manager.Prune(keepLast); err != nil {
+		return err
+	}
+	fmt.Printf("kept last %d dump(s) per guest\n", keepLast)
+	return nil
+}
+
+func cmdRestoreVM(ctx context.Context, args []string) error {
+	fs := newFlagSet("restore-vm")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	storage := stringFlag(fs, "storage", "", "override proxmox.storage")
+	force := fs.Bool("force", false, "overwrite an existing VM or CT")
+	targetFlag := stringFlag(fs, "target", "", "directory for the temporary archive restore")
+	keep := fs.Bool("keep", false, "keep the temporary archive directory")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() != 2 {
+		return errors.New("usage: jealous-vault restore-vm <vmid> <snapshot|latest>")
+	}
+	id, err := strconv.Atoi(fs.Arg(0))
+	if err != nil {
+		return fmt.Errorf("invalid vmid %q", fs.Arg(0))
+	}
+	snapshotRef := fs.Arg(1)
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepareRepository(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "restore-vm")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		return err
+	}
+	snapshot, err := resolveSnapshot(snapshots, snapshotRef, cfg.Host)
+	if err != nil {
+		return err
+	}
+
+	autoTarget := *targetFlag == ""
+	target := *targetFlag
+	if autoTarget {
+		target = filepath.Join(filepath.Dir(cfg.StateFile), "restore-vm", time.Now().UTC().Format("20060102-150405"))
+	}
+	if err := os.MkdirAll(target, 0o750); err != nil {
+		return err
+	}
+
+	plan, err := restore.New(snapshot.ID, target, []string{cfg.Proxmox.DumpDir}, restore.OverwriteAlways)
+	if err != nil {
+		return err
+	}
+	plan.Host = cfg.Host
+	fmt.Printf("restoring dump archive from %s into %s\n", snapshot.ShortID, target)
+	if err := plan.Execute(ctx, client); err != nil {
+		fmt.Fprintf(os.Stderr, "jealous-vault: archive kept in %s\n", target)
+		return err
+	}
+
+	restoredDir := filepath.Join(target, strings.TrimPrefix(cfg.Proxmox.DumpDir, "/"))
+	manager := proxmox.New(proxmox.Options{
+		DumpDir: restoredDir,
+		Storage: firstNonEmpty(*storage, cfg.Proxmox.Storage),
+		Logger:  log,
+	})
+	fmt.Printf("restoring guest %d with storage %s\n", id, firstNonEmpty(*storage, cfg.Proxmox.Storage))
+	if err := manager.RestoreFromDir(ctx, id, restoredDir, *force); err != nil {
+		fmt.Fprintf(os.Stderr, "jealous-vault: archive kept in %s\n", target)
+		return err
+	}
+
+	if autoTarget && !*keep {
+		if err := os.RemoveAll(target); err != nil {
+			fmt.Fprintf(os.Stderr, "jealous-vault: cannot clean up %s: %v\n", target, err)
+		}
+	}
+	fmt.Printf("guest %d restored from snapshot %s\n", id, snapshot.ShortID)
+	return nil
+}
+
+func selectGuestIDs(ctx context.Context, cfg *config.Config, raw []string, all bool, manager *proxmox.Manager) ([]int, error) {
+	if len(raw) > 0 {
+		return parseIDs(raw)
+	}
+	if len(cfg.Proxmox.VMs) > 0 {
+		return cfg.Proxmox.VMs, nil
+	}
+	if all || cfg.Proxmox.All {
+		return manager.Guests(ctx)
+	}
+	return nil, errors.New("no VMIDs: pass IDs, use --all, or set proxmox.vms")
+}
+
+func parseIDs(args []string) ([]int, error) {
+	ids := make([]int, 0, len(args))
+	for _, arg := range args {
+		id, err := strconv.Atoi(arg)
+		if err != nil {
+			return nil, fmt.Errorf("invalid vmid %q", arg)
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func cmdSnapshots(ctx context.Context, args []string) error {

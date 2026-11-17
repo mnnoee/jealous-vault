@@ -29,6 +29,8 @@ const (
 	FreshnessTimer   = "jealous-vault-freshness.timer"
 	VerifyService    = "jealous-vault-verify.service"
 	VerifyTimer      = "jealous-vault-verify.timer"
+	ProxmoxService   = "jealous-vault-proxmox.service"
+	ProxmoxTimer     = "jealous-vault-proxmox.timer"
 )
 
 const checkCalendar = "Sun *-*-* 04:30:00"
@@ -78,6 +80,17 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
+	if cfg.Proxmox.Enabled {
+		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o750); err != nil {
+			return err
+		}
+		units[ProxmoxService] = proxmoxService(i.BinaryPath, i.ConfigPath)
+		units[ProxmoxTimer] = proxmoxTimer(cfg.Proxmox.Schedule)
+	} else {
+		for _, name := range []string{ProxmoxTimer, ProxmoxService} {
+			_ = os.Remove(filepath.Join(i.UnitDir, name))
+		}
+	}
 	for name, body := range units {
 		if err := writeFile(filepath.Join(i.UnitDir, name), []byte(body)); err != nil {
 			return err
@@ -96,6 +109,9 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	if cfg.Verify.Enabled {
 		timers = append(timers, VerifyTimer)
 	}
+	if cfg.Proxmox.Enabled {
+		timers = append(timers, ProxmoxTimer)
+	}
 	if err := i.systemctl(ctx, append([]string{"enable", "--now"}, timers...)...); err != nil {
 		return err
 	}
@@ -112,11 +128,20 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 		out = io.Discard
 	}
 
+	timers := i.installedTimers()
 	var errs []error
-	if err := i.systemctl(ctx, "disable", "--now", BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer); err != nil {
-		errs = append(errs, err)
+	if len(timers) > 0 {
+		if err := i.systemctl(ctx, append([]string{"disable", "--now"}, timers...)...); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	for _, name := range []string{BackupTimer, BackupService, CheckTimer, CheckService, FreshnessTimer, FreshnessService, VerifyTimer, VerifyService} {
+	for _, name := range []string{
+		BackupTimer, BackupService,
+		CheckTimer, CheckService,
+		FreshnessTimer, FreshnessService,
+		VerifyTimer, VerifyService,
+		ProxmoxTimer, ProxmoxService,
+	} {
 		path := filepath.Join(i.UnitDir, name)
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			errs = append(errs, err)
@@ -129,6 +154,16 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	}
 	fmt.Fprintf(out, "kept %s\n", i.ConfigPath)
 	return join(errs)
+}
+
+func (i *Installer) installedTimers() []string {
+	var timers []string
+	for _, name := range []string{BackupTimer, CheckTimer, FreshnessTimer, VerifyTimer, ProxmoxTimer} {
+		if _, err := os.Stat(filepath.Join(i.UnitDir, name)); err == nil {
+			timers = append(timers, name)
+		}
+	}
+	return timers
 }
 
 func (i *Installer) defaults() {
@@ -374,6 +409,42 @@ Unit=%s
 [Install]
 WantedBy=timers.target
 `, schedule, VerifyService)
+}
+
+func proxmoxService(binary, configPath string) string {
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault Proxmox dump and backup
+Documentation=https://github.com/mnnoee/jealous-vault
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%s vzdump --config %s
+TimeoutStartSec=0
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+`, quoteArg(binary), quoteArg(configPath))
+}
+
+func proxmoxTimer(schedule string) string {
+	if schedule == "" {
+		schedule = "*-*-* 02:00:00"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault Proxmox dump timer
+
+[Timer]
+OnCalendar=%s
+RandomizedDelaySec=15m
+Persistent=true
+AccuracySec=1m
+Unit=%s
+
+[Install]
+WantedBy=timers.target
+`, schedule, ProxmoxService)
 }
 
 func quoteArg(s string) string {

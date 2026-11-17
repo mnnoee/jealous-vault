@@ -81,6 +81,9 @@ paths = ["/etc"]
 	if cfg.VerifyMaxSize != 10_000_000_000 {
 		t.Errorf("verify max size = %d", cfg.VerifyMaxSize)
 	}
+	if cfg.Proxmox.Mode != "snapshot" || cfg.Proxmox.KeepLast != 1 || !cfg.Proxmox.All {
+		t.Errorf("proxmox defaults = %+v", cfg.Proxmox)
+	}
 }
 
 func TestLoadUnknownKey(t *testing.T) {
@@ -133,6 +136,21 @@ func TestValidate(t *testing.T) {
 			name: "telegram token without chat",
 			mod:  func(c *Config) { c.Notify.TelegramToken = "token" },
 			want: "telegram",
+		},
+		{
+			name: "unknown proxmox mode",
+			mod:  func(c *Config) { c.Proxmox.Mode = "magic" },
+			want: "proxmox.mode",
+		},
+		{
+			name: "relative dump dir",
+			mod:  func(c *Config) { c.Proxmox.DumpDir = "dump" },
+			want: "proxmox.dump_dir",
+		},
+		{
+			name: "negative keep last",
+			mod:  func(c *Config) { c.Proxmox.KeepLast = -1 },
+			want: "proxmox.keep_last",
 		},
 		{
 			name: "unknown verify level",
@@ -470,5 +488,30 @@ paths = ["/etc"]
 	}
 	if cfg.Repository.SFTPKnownHosts != "/etc/jealous-vault/known_hosts" {
 		t.Errorf("known hosts = %q", cfg.Repository.SFTPKnownHosts)
+	}
+}
+
+func TestRenderExampleProxmox(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	err := WriteExample(path, InitOptions{
+		Host:          "pve",
+		RepositoryURL: "local:/srv/repo",
+		PasswordFile:  filepath.Join(dir, "restic.pass"),
+		Proxmox:       true,
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Proxmox.Enabled {
+		t.Fatal("proxmox is not enabled in the generated config")
+	}
+	if cfg.Proxmox.DumpDir != "/var/lib/vz/dump/jealous-vault" {
+		t.Errorf("dump dir = %q", cfg.Proxmox.DumpDir)
 	}
 }

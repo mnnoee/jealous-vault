@@ -154,3 +154,41 @@ func TestQuoteArg(t *testing.T) {
 		t.Fatalf("quoteArg = %q, want %q", got, want)
 	}
 }
+
+func TestInstallProxmoxEnabled(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "units")
+	systemctl, logFile := fakeSystemctl(t, dir)
+	dumpDir := filepath.Join(dir, "dumps")
+
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(dir, "state.json")
+	cfg.Proxmox.Enabled = true
+	cfg.Proxmox.DumpDir = dumpDir
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		UnitDir:    units,
+		Systemctl:  systemctl,
+		SkipStart:  false,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{ProxmoxService, ProxmoxTimer} {
+		if _, err := os.Stat(filepath.Join(units, name)); err != nil {
+			t.Errorf("%s missing: %v", name, err)
+		}
+	}
+	if _, err := os.Stat(dumpDir); err != nil {
+		t.Errorf("dump dir was not created: %v", err)
+	}
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), ProxmoxTimer) {
+		t.Errorf("proxmox timer was not enabled:\n%s", log)
+	}
+}

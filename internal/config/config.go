@@ -42,6 +42,7 @@ type Config struct {
 	Schedule     Schedule  `toml:"schedule"`
 	Freshness    Freshness `toml:"freshness"`
 	Verify       Verify    `toml:"verify"`
+	Proxmox      Proxmox   `toml:"proxmox"`
 	Check        Check     `toml:"check"`
 	Restore      Restore   `toml:"restore"`
 	Notify       Notify    `toml:"notify"`
@@ -114,6 +115,19 @@ type Verify struct {
 	PostHook string `toml:"post_hook"`
 }
 
+// Proxmox controls vzdump and VM restore.
+type Proxmox struct {
+	Enabled  bool   `toml:"enabled"`
+	Schedule string `toml:"schedule"`
+	DumpDir  string `toml:"dump_dir"`
+	Mode     string `toml:"mode"`
+	Compress string `toml:"compress"`
+	KeepLast int    `toml:"keep_last"`
+	VMs      []int  `toml:"vms"`
+	All      bool   `toml:"all"`
+	Storage  string `toml:"storage"`
+}
+
 // Check controls the integrity check timer.
 type Check struct {
 	ReadDataSubset string `toml:"read_data_subset"`
@@ -167,6 +181,15 @@ func Default() *Config {
 			MinFree:  "20GB",
 			Timeout:  "2h",
 			Schedule: "Sun *-*-* 05:00:00",
+		},
+		Proxmox: Proxmox{
+			Schedule: "*-*-* 02:00:00",
+			DumpDir:  "/var/lib/vz/dump/jealous-vault",
+			Mode:     "snapshot",
+			Compress: "zstd",
+			KeepLast: 1,
+			All:      true,
+			Storage:  "local-lvm",
 		},
 		Backup: Backup{Profile: "host", Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
@@ -254,6 +277,21 @@ func (c *Config) finish() error {
 	}
 	if c.Verify.Schedule == "" {
 		c.Verify.Schedule = "Sun *-*-* 05:00:00"
+	}
+	if c.Proxmox.Schedule == "" {
+		c.Proxmox.Schedule = "*-*-* 02:00:00"
+	}
+	if c.Proxmox.DumpDir == "" {
+		c.Proxmox.DumpDir = "/var/lib/vz/dump/jealous-vault"
+	}
+	if c.Proxmox.Mode == "" {
+		c.Proxmox.Mode = "snapshot"
+	}
+	if c.Proxmox.Compress == "" {
+		c.Proxmox.Compress = "zstd"
+	}
+	if c.Proxmox.Storage == "" {
+		c.Proxmox.Storage = "local-lvm"
 	}
 	if c.Backup.Profile == "" {
 		c.Backup.Profile = "host"
@@ -401,6 +439,28 @@ func (c *Config) Validate() error {
 	}
 	if c.Verify.Enabled && c.Verify.Schedule == "" {
 		return errors.New("verify.schedule is empty")
+	}
+	switch c.Proxmox.Mode {
+	case "snapshot", "suspend", "stop":
+	default:
+		return fmt.Errorf("proxmox.mode %q must be snapshot, suspend or stop", c.Proxmox.Mode)
+	}
+	switch c.Proxmox.Compress {
+	case "zstd", "gzip", "lzo", "0", "none":
+	default:
+		return fmt.Errorf("proxmox.compress %q must be zstd, gzip, lzo or none", c.Proxmox.Compress)
+	}
+	if !filepath.IsAbs(c.Proxmox.DumpDir) {
+		return fmt.Errorf("proxmox.dump_dir %q must be absolute", c.Proxmox.DumpDir)
+	}
+	if c.Proxmox.KeepLast < 0 {
+		return errors.New("proxmox.keep_last must not be negative")
+	}
+	if c.Proxmox.Enabled && c.Proxmox.Schedule == "" {
+		return errors.New("proxmox.schedule is empty")
+	}
+	if c.Proxmox.Storage == "" {
+		return errors.New("proxmox.storage is empty")
 	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")

@@ -90,6 +90,9 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, add)
 	checkS3Credentials(cfg, add)
 	checkRetention(cfg, add)
+	if cfg.Proxmox.Enabled {
+		checkProxmox(ctx, cfg, add)
+	}
 
 	return report
 }
@@ -264,6 +267,37 @@ func checkS3Credentials(cfg *config.Config, add func(string, Level, string)) {
 		return
 	}
 	add("s3", LevelWarn, "AWS credentials are not set in the config env, instance role may still work")
+}
+
+func checkProxmox(ctx context.Context, cfg *config.Config, add func(string, Level, string)) {
+	var missing []string
+	for _, bin := range []string{"vzdump", "qm", "pct"} {
+		if _, err := exec.LookPath(bin); err != nil {
+			missing = append(missing, bin)
+		}
+	}
+	if len(missing) > 0 {
+		add("proxmox", LevelFail, "missing commands: "+strings.Join(missing, ", "))
+		return
+	}
+	info, err := os.Stat(cfg.Proxmox.DumpDir)
+	switch {
+	case os.IsNotExist(err):
+		add("proxmox", LevelWarn, cfg.Proxmox.DumpDir+" does not exist yet, install will create it")
+	case err != nil:
+		add("proxmox", LevelFail, err.Error())
+	case !info.IsDir():
+		add("proxmox", LevelFail, cfg.Proxmox.DumpDir+" is not a directory")
+	default:
+		add("proxmox", LevelOK, "commands and dump directory are present")
+	}
+
+	cmd := exec.CommandContext(ctx, "pvesm", "status")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		add("proxmox storage", LevelWarn, strings.TrimSpace(string(out)))
+	} else {
+		add("proxmox storage", LevelOK, "pvesm status is readable")
+	}
 }
 
 func checkRetention(cfg *config.Config, add func(string, Level, string)) {
