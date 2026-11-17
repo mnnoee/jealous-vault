@@ -146,6 +146,15 @@ post_hooks = []
 # listed in paths explicitly. Otherwise its contents are skipped.
 one_file_system = true
 timeout = "6h"
+# Retry the restic backup on failure. Lock errors also run restore unlock.
+attempts = 3
+retry_delay = "1m"
+# KiB/s, 0 means unlimited.
+limit_upload = 0
+# auto, off or max.
+compression = "auto"
+# MiB, 0 keeps the restic default.
+pack_size = 0
 
 [retention]
 keep_last = 3

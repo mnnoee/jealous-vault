@@ -226,3 +226,76 @@ esac
 		t.Errorf("backup calls = %d, want 2: %q", got, text)
 	}
 }
+
+func TestBackupRetriesTransientFailure(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.log")
+	marker := filepath.Join(dir, "failed-once")
+	script := writeScript(t, `printf '%s\n' "$*" >> `+argsFile+`
+case "$1" in
+backup)
+  if [ ! -f `+marker+` ]; then
+    touch `+marker+`
+    echo "connection reset by peer" >&2
+    exit 1
+  fi
+  echo '{"message_type":"summary","snapshot_id":"snap-after-retry"}'
+  ;;
+esac
+`)
+
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = script
+	cfg.Backup.Attempts = 2
+	cfg.RetryDelay = 0
+
+	r := New(cfg, discardLogger(), io.Discard)
+	run, err := r.Backup(context.Background())
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	if run.SnapshotID != "snap-after-retry" {
+		t.Fatalf("run = %+v", run)
+	}
+	if len(run.Warnings) == 0 || !strings.Contains(run.Warnings[0], "attempt 1 failed") {
+		t.Errorf("retry warning missing: %+v", run.Warnings)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(args), "backup --json"); got != 2 {
+		t.Errorf("backup calls = %d, want 2: %q", got, args)
+	}
+}
+
+func TestDryRunDoesNotRecordState(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.log")
+	script := writeScript(t, `printf '%s\n' "$*" >> `+argsFile+`
+if [ "$1" = "backup" ]; then
+  echo '{"message_type":"summary","snapshot_id":"dry","files_new":1}'
+fi
+`)
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = script
+
+	r := New(cfg, discardLogger(), io.Discard)
+	summary, err := r.DryRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.SnapshotID != "dry" {
+		t.Fatalf("summary = %+v", summary)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), "--dry-run") {
+		t.Errorf("dry run flag missing: %q", args)
+	}
+	if _, err := os.Stat(cfg.StateFile); !os.IsNotExist(err) {
+		t.Errorf("dry run wrote state: %v", err)
+	}
+}

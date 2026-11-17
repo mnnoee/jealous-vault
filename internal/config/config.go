@@ -58,6 +58,7 @@ type Config struct {
 	VerifyTimeout   time.Duration `toml:"-"`
 	VerifyMaxSize   int64         `toml:"-"`
 	VerifyMinFree   int64         `toml:"-"`
+	RetryDelay      time.Duration `toml:"-"`
 	EmailPassword   string        `toml:"-"`
 	EmailTimeout    time.Duration `toml:"-"`
 }
@@ -83,6 +84,11 @@ type Backup struct {
 	PostHooks     []string `toml:"post_hooks"`
 	OneFileSystem bool     `toml:"one_file_system"`
 	Timeout       string   `toml:"timeout"`
+	Attempts      int      `toml:"attempts"`
+	RetryDelay    string   `toml:"retry_delay"`
+	LimitUpload   int      `toml:"limit_upload"`
+	Compression   string   `toml:"compression"`
+	PackSize      int      `toml:"pack_size"`
 }
 
 // Retention is passed to restic forget.
@@ -228,7 +234,7 @@ func Default() *Config {
 			All:      true,
 			Storage:  "local-lvm",
 		},
-		Backup: Backup{Profile: "host", Timeout: "6h"},
+		Backup: Backup{Profile: "host", Timeout: "6h", Attempts: 3, RetryDelay: "1m", Compression: "auto"},
 		Check:  Check{Timeout: "2h"},
 		Notify: Notify{
 			Timeout: "10s",
@@ -364,6 +370,15 @@ func (c *Config) finish() error {
 	if c.Backup.Timeout == "" {
 		c.Backup.Timeout = "6h"
 	}
+	if c.Backup.Attempts == 0 {
+		c.Backup.Attempts = 3
+	}
+	if c.Backup.RetryDelay == "" {
+		c.Backup.RetryDelay = "1m"
+	}
+	if c.Backup.Compression == "" {
+		c.Backup.Compression = "auto"
+	}
 	if c.Check.Timeout == "" {
 		c.Check.Timeout = "2h"
 	}
@@ -449,6 +464,9 @@ func (c *Config) finish() error {
 	}
 	if c.VerifyMinFree, err = ParseSize(c.Verify.MinFree); err != nil {
 		return fmt.Errorf("verify.min_free: %w", err)
+	}
+	if c.RetryDelay, err = parseDuration("backup.retry_delay", c.Backup.RetryDelay); err != nil {
+		return err
 	}
 
 	return c.Validate()
@@ -594,6 +612,23 @@ func (c *Config) Validate() error {
 	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")
+	}
+	if c.Backup.Attempts < 1 {
+		return errors.New("backup.attempts must be at least 1")
+	}
+	if c.RetryDelay < 0 {
+		return errors.New("backup.retry_delay must not be negative")
+	}
+	if c.Backup.LimitUpload < 0 {
+		return errors.New("backup.limit_upload must not be negative")
+	}
+	switch c.Backup.Compression {
+	case "auto", "off", "max":
+	default:
+		return fmt.Errorf("backup.compression %q must be auto, off or max", c.Backup.Compression)
+	}
+	if c.Backup.PackSize < 0 {
+		return errors.New("backup.pack_size must not be negative")
 	}
 	if c.CheckTimeout <= 0 {
 		return errors.New("check.timeout must be positive")

@@ -56,6 +56,10 @@ esac
 		Excludes:      []string{"/var/cache"},
 		Tags:          []string{"nightly"},
 		OneFileSystem: true,
+		DryRun:        true,
+		LimitUpload:   1000,
+		Compression:   "max",
+		PackSize:      16,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -71,7 +75,7 @@ esac
 	}
 
 	args := readArgs(t, argsFile)
-	for _, want := range []string{"backup --json", "--host node-1", "--one-file-system", "--tag nightly", "--exclude /var/cache", "/etc /var/www"} {
+	for _, want := range []string{"backup --json", "--host node-1", "--one-file-system", "--tag nightly", "--exclude /var/cache", "--dry-run", "--limit-upload 1000", "--compression max", "--pack-size 16", "/etc /var/www"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q do not contain %q", args, want)
 		}

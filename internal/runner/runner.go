@@ -84,22 +84,7 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 		r.log.Info("backup started", "paths", r.cfg.Backup.Paths, "repository", r.cfg.RedactedRepository())
 
 		backupCtx, cancel := context.WithTimeout(ctx, r.cfg.BackupTimeout)
-		opts := restic.BackupOptions{
-			Host:          r.cfg.Host,
-			Paths:         r.cfg.Backup.Paths,
-			Excludes:      r.cfg.Backup.Excludes,
-			Tags:          r.cfg.Backup.Tags,
-			OneFileSystem: r.cfg.Backup.OneFileSystem,
-		}
-		summary, err := r.restic.Backup(backupCtx, opts)
-		if err != nil && restic.IsLockError(err) {
-			r.log.Warn("repository is locked, unlocking stale locks and retrying once")
-			if unlockErr := r.restic.Unlock(backupCtx); unlockErr != nil {
-				r.log.Error("cannot unlock repository", "error", unlockErr)
-			} else {
-				summary, err = r.restic.Backup(backupCtx, opts)
-			}
-		}
+		summary, err := r.backupWithRetry(backupCtx, r.backupOptions(false), &warnings)
 		cancel()
 
 		if err != nil {
@@ -134,6 +119,75 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 		backupErr = fmt.Errorf("pre hook: %w", preErr)
 	}
 	return r.finish(ctx, run, warnings, backupErr)
+}
+
+// backupOptions returns the restic backup flags for this configuration.
+func (r *Runner) backupOptions(dryRun bool) restic.BackupOptions {
+	return restic.BackupOptions{
+		Host:          r.cfg.Host,
+		Paths:         r.cfg.Backup.Paths,
+		Excludes:      r.cfg.Backup.Excludes,
+		Tags:          r.cfg.Backup.Tags,
+		OneFileSystem: r.cfg.Backup.OneFileSystem,
+		DryRun:        dryRun,
+		LimitUpload:   r.cfg.Backup.LimitUpload,
+		Compression:   r.cfg.Backup.Compression,
+		PackSize:      r.cfg.Backup.PackSize,
+	}
+}
+
+// backupWithRetry runs restic backup up to the configured number of attempts.
+// A lock error also runs restic unlock before the next attempt. Failures are
+// recorded as warnings so the final alert still explains what happened.
+func (r *Runner) backupWithRetry(ctx context.Context, opts restic.BackupOptions, warnings *[]string) (restic.Summary, error) {
+	attempts := r.cfg.Backup.Attempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	var summary restic.Summary
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		summary, err = r.restic.Backup(ctx, opts)
+		if err == nil {
+			return summary, nil
+		}
+		if ctx.Err() != nil {
+			return summary, err
+		}
+		if restic.IsLockError(err) {
+			r.log.Warn("repository is locked, unlocking stale locks before retrying")
+			if unlockErr := r.restic.Unlock(ctx); unlockErr != nil {
+				r.log.Error("cannot unlock repository", "error", unlockErr)
+			}
+		}
+		if attempt == attempts {
+			break
+		}
+		if warnings != nil {
+			*warnings = append(*warnings, fmt.Sprintf("backup attempt %d failed: %v", attempt, err))
+		}
+		delay := r.cfg.RetryDelay
+		for i := 1; i < attempt && delay > 0; i++ {
+			delay *= 2
+		}
+		r.log.Warn("backup attempt failed, retrying", "attempt", attempt, "delay", delay, "error", err)
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return summary, err
+		case <-timer.C:
+		}
+	}
+	return summary, err
+}
+
+// DryRun asks restic what a backup would change without writing to the
+// repository, running hooks, retention, notifications or state.
+func (r *Runner) DryRun(ctx context.Context) (restic.Summary, error) {
+	dryCtx, cancel := context.WithTimeout(ctx, r.cfg.BackupTimeout)
+	defer cancel()
+	return r.restic.Backup(dryCtx, r.backupOptions(true))
 }
 
 // Check verifies repository integrity and records the result.

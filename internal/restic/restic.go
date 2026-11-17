@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -102,6 +103,10 @@ type BackupOptions struct {
 	Excludes      []string
 	Tags          []string
 	OneFileSystem bool
+	DryRun        bool
+	LimitUpload   int
+	Compression   string
+	PackSize      int
 }
 
 // Summary is the final restic backup message.
@@ -126,6 +131,18 @@ func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
 	}
 	if o.OneFileSystem {
 		args = append(args, "--one-file-system")
+	}
+	if o.DryRun {
+		args = append(args, "--dry-run")
+	}
+	if o.LimitUpload > 0 {
+		args = append(args, "--limit-upload", strconv.Itoa(o.LimitUpload))
+	}
+	if o.Compression != "" && o.Compression != "auto" {
+		args = append(args, "--compression", o.Compression)
+	}
+	if o.PackSize > 0 {
+		args = append(args, "--pack-size", strconv.Itoa(o.PackSize))
 	}
 	for _, tag := range o.Tags {
 		args = append(args, "--tag", tag)

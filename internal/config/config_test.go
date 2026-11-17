@@ -581,3 +581,43 @@ func validConfigForValidation() *Config {
 	cfg.EmailTimeout = 15 * time.Second
 	return cfg
 }
+
+func TestBackupTransferOptions(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+
+[backup]
+paths = ["/etc"]
+attempts = 5
+retry_delay = "30s"
+limit_upload = 2048
+compression = "max"
+pack_size = 32
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Backup.Attempts != 5 || cfg.RetryDelay != 30*time.Second {
+		t.Errorf("retry = %d/%s", cfg.Backup.Attempts, cfg.RetryDelay)
+	}
+	if cfg.Backup.LimitUpload != 2048 || cfg.Backup.Compression != "max" || cfg.Backup.PackSize != 32 {
+		t.Errorf("transfer options = %+v", cfg.Backup)
+	}
+
+	bad := writeFile(t, dir, "bad.toml", `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+
+[backup]
+paths = ["/etc"]
+compression = "gzip"
+`)
+	if _, err := Load(bad); err == nil || !strings.Contains(err.Error(), "compression") {
+		t.Fatalf("bad compression = %v", err)
+	}
+}
