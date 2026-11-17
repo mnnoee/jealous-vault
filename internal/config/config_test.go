@@ -728,3 +728,54 @@ paths = ["/etc"]
 		t.Fatalf("bad job = %v", err)
 	}
 }
+
+func TestDumpOptions(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+[backup.dumps]
+dir = "/var/lib/jealous-vault/dumps"
+keep = 2
+[backup.dumps.postgres]
+enabled = true
+databases = ["app"]
+password_file = "/etc/jealous-vault/pg.pass"
+[backup.dumps.mysql]
+enabled = true
+databases = ["app"]
+password_file = "/etc/jealous-vault/mysql.pass"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Backup.Dumps.Postgres.Port != 5432 || cfg.Backup.Dumps.Postgres.Binary != "pg_dump" {
+		t.Errorf("postgres defaults = %+v", cfg.Backup.Dumps.Postgres)
+	}
+	if cfg.Backup.Dumps.MySQL.Port != 3306 || cfg.Backup.Dumps.MySQL.Binary != "mysqldump" {
+		t.Errorf("mysql defaults = %+v", cfg.Backup.Dumps.MySQL)
+	}
+	if cfg.Backup.Dumps.Keep != 2 {
+		t.Errorf("keep = %d", cfg.Backup.Dumps.Keep)
+	}
+
+	bad := writeFile(t, dir, "bad.toml", `
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+[backup]
+paths = ["/etc"]
+[backup.dumps]
+dir = "relative"
+[backup.dumps.postgres]
+enabled = true
+databases = ["../app"]
+`)
+	if _, err := Load(bad); err == nil {
+		t.Fatal("invalid dump config was accepted")
+	}
+}

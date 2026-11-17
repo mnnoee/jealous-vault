@@ -689,6 +689,7 @@ func cmdVzdump(ctx context.Context, args []string) error {
 	backupCfg.Backup.PreHooks = nil
 	backupCfg.Backup.PostHooks = nil
 	backupCfg.Backup.Profile = "custom"
+	backupCfg.Backup.Dumps = config.DumpOptions{}
 	backupCfg.Backup.Tags = append(append([]string(nil), cfg.Backup.Tags...), "vzdump")
 	for _, id := range ids {
 		backupCfg.Backup.Tags = append(backupCfg.Backup.Tags, fmt.Sprintf("vmid-%d", id))

@@ -104,6 +104,18 @@ func (c *Config) CheckSecretFiles() error {
 		{"copy.env_file", c.Copy.EnvFile},
 		{"notify.email.password_file", c.Notify.Email.PasswordFile},
 	}
+	if p := c.Backup.Dumps.Postgres; p != nil && p.Enabled {
+		checks = append(checks, struct {
+			label string
+			path  string
+		}{"backup.dumps.postgres.password_file", p.PasswordFile})
+	}
+	if m := c.Backup.Dumps.MySQL; m != nil && m.Enabled {
+		checks = append(checks, struct {
+			label string
+			path  string
+		}{"backup.dumps.mysql.password_file", m.PasswordFile})
+	}
 	for _, check := range checks {
 		if err := CheckSecretFile(check.label, check.path); err != nil {
 			return err

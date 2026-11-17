@@ -299,3 +299,55 @@ fi
 		t.Errorf("dry run wrote state: %v", err)
 	}
 }
+
+func TestBackupIncludesDatabaseDumps(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "restic-args")
+	resticScript := writeScript(t, `printf '%s\n' "$*" >> `+argsFile+`
+if [ "$1" = "backup" ]; then
+  echo '{"message_type":"summary","snapshot_id":"snap-dump"}'
+fi
+`)
+	pgDump := filepath.Join(dir, "pg_dump")
+	if err := os.WriteFile(pgDump, []byte(`#!/bin/sh
+file=""
+for a in "$@"; do case "$a" in --file=*) file="${a#--file=}";; esac; done
+printf 'dump' > "$file"
+`), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	passwordFile := filepath.Join(dir, "pg.pass")
+	if err := os.WriteFile(passwordFile, []byte("secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = resticScript
+	cfg.Backup.Dumps = config.DumpOptions{
+		Dir:  filepath.Join(dir, "dumps"),
+		Keep: 1,
+		Postgres: &config.PostgresDump{
+			Enabled:      true,
+			Databases:    []string{"app"},
+			Port:         5432,
+			PasswordFile: passwordFile,
+			Binary:       pgDump,
+		},
+	}
+
+	r := New(cfg, discardLogger(), io.Discard)
+	run, err := r.Backup(context.Background())
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	if run.Status != state.StatusSuccess {
+		t.Fatalf("run = %+v", run)
+	}
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(args), filepath.Join(dir, "dumps", "dump-")) {
+		t.Errorf("restic did not receive the dump directory: %q", args)
+	}
+}

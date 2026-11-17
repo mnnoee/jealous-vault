@@ -89,6 +89,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 
 	checkPaths(cfg, add)
 	checkBackupSecrets(cfg, add)
+	checkDumps(cfg, add)
 	stateDir := checkStateDir(cfg, add)
 	checkFreeSpace(stateDir, add)
 	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, cfg.Job, add)
@@ -168,6 +169,12 @@ func checkBackupSecrets(cfg *config.Config, add func(string, Level, string)) {
 		cfg.Copy.EnvFile,
 		cfg.Notify.Email.PasswordFile,
 	}
+	if p := cfg.Backup.Dumps.Postgres; p != nil && p.Enabled {
+		secrets = append(secrets, p.PasswordFile)
+	}
+	if m := cfg.Backup.Dumps.MySQL; m != nil && m.Enabled {
+		secrets = append(secrets, m.PasswordFile)
+	}
 	var exposed []string
 	for _, secret := range secrets {
 		if secret == "" || secretExcluded(secret, cfg.Backup.Excludes) {
@@ -196,6 +203,43 @@ func secretExcluded(path string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func checkDumps(cfg *config.Config, add func(string, Level, string)) {
+	enabled := false
+	if p := cfg.Backup.Dumps.Postgres; p != nil && p.Enabled {
+		enabled = true
+		checkDumpBackend("postgres", p.Binary, p.PasswordFile, add)
+	}
+	if m := cfg.Backup.Dumps.MySQL; m != nil && m.Enabled {
+		enabled = true
+		checkDumpBackend("mysql", m.Binary, m.PasswordFile, add)
+	}
+	if !enabled {
+		return
+	}
+	info, err := os.Stat(cfg.Backup.Dumps.Dir)
+	switch {
+	case os.IsNotExist(err):
+		add("dump dir", LevelWarn, cfg.Backup.Dumps.Dir+" does not exist yet, it will be created")
+	case err != nil:
+		add("dump dir", LevelFail, err.Error())
+	case !info.IsDir():
+		add("dump dir", LevelFail, cfg.Backup.Dumps.Dir+" is not a directory")
+	default:
+		add("dump dir", LevelOK, cfg.Backup.Dumps.Dir+" is ready")
+	}
+}
+
+func checkDumpBackend(name, binary, password string, add func(string, Level, string)) {
+	if _, err := exec.LookPath(binary); err != nil {
+		add("dump "+name, LevelFail, binary+" not found in PATH")
+	}
+	if password != "" {
+		if _, err := os.Stat(password); err != nil {
+			add("dump "+name, LevelFail, err.Error())
+		}
+	}
 }
 
 func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client, add func(string, Level, string)) bool {

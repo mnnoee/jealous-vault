@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/dump"
 	"github.com/mnnoee/jealous-vault/internal/hooks"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
@@ -25,6 +26,7 @@ type Runner struct {
 	restic *restic.Client
 	notify *notify.Notifier
 	store  state.Store
+	dumps  *dump.Manager
 	log    *slog.Logger
 	now    func() time.Time
 }
@@ -59,6 +61,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			Logger:           log,
 		}),
 		store: state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile},
+		dumps: dump.New(cfg.Backup.Dumps, log),
 		log:   log,
 		now:   time.Now,
 	}
@@ -83,26 +86,41 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 	if preErr == nil {
 		r.log.Info("backup started", "paths", r.cfg.Backup.Paths, "repository", r.cfg.RedactedRepository())
 
-		backupCtx, cancel := context.WithTimeout(ctx, r.cfg.BackupTimeout)
-		summary, err := r.backupWithRetry(backupCtx, r.backupOptions(false), &warnings)
-		cancel()
-
-		if err != nil {
-			backupErr = err
+		paths := append([]string(nil), r.cfg.Backup.Paths...)
+		dumpDir, dumpErr := r.dumps.Run(ctx)
+		if dumpErr != nil {
+			backupErr = fmt.Errorf("database dump: %w", dumpErr)
 		} else {
-			run.Status = state.StatusSuccess
-			run.SnapshotID = summary.SnapshotID
-			run.FilesNew = summary.FilesNew
-			run.FilesChanged = summary.FilesChanged
-			run.BytesAdded = summary.DataAdded
-			r.log.Info("backup finished",
-				"snapshot", summary.SnapshotID,
-				"files_new", summary.FilesNew,
-				"files_changed", summary.FilesChanged,
-				"bytes_added", summary.DataAdded,
-			)
-			if err := r.retention(ctx); err != nil {
-				warnings = append(warnings, err.Error())
+			if dumpDir != "" {
+				paths = append(paths, dumpDir)
+				r.log.Info("database dumps ready", "dir", dumpDir)
+			}
+			backupCtx, cancel := context.WithTimeout(ctx, r.cfg.BackupTimeout)
+			opts := r.backupOptions(false)
+			opts.Paths = paths
+			summary, err := r.backupWithRetry(backupCtx, opts, &warnings)
+			cancel()
+
+			if err != nil {
+				backupErr = err
+			} else {
+				run.Status = state.StatusSuccess
+				run.SnapshotID = summary.SnapshotID
+				run.FilesNew = summary.FilesNew
+				run.FilesChanged = summary.FilesChanged
+				run.BytesAdded = summary.DataAdded
+				r.log.Info("backup finished",
+					"snapshot", summary.SnapshotID,
+					"files_new", summary.FilesNew,
+					"files_changed", summary.FilesChanged,
+					"bytes_added", summary.DataAdded,
+				)
+				if err := r.retention(ctx); err != nil {
+					warnings = append(warnings, err.Error())
+				}
+				if err := r.dumps.Prune(); err != nil {
+					warnings = append(warnings, "prune database dumps: "+err.Error())
+				}
 			}
 		}
 	}

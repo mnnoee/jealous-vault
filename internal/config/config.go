@@ -78,19 +78,50 @@ type Repo struct {
 
 // Backup describes what to copy and how.
 type Backup struct {
-	Profile       string   `toml:"profile"`
-	Paths         []string `toml:"paths"`
-	Excludes      []string `toml:"excludes"`
-	Tags          []string `toml:"tags"`
-	PreHooks      []string `toml:"pre_hooks"`
-	PostHooks     []string `toml:"post_hooks"`
-	OneFileSystem bool     `toml:"one_file_system"`
-	Timeout       string   `toml:"timeout"`
-	Attempts      int      `toml:"attempts"`
-	RetryDelay    string   `toml:"retry_delay"`
-	LimitUpload   int      `toml:"limit_upload"`
-	Compression   string   `toml:"compression"`
-	PackSize      int      `toml:"pack_size"`
+	Profile       string      `toml:"profile"`
+	Paths         []string    `toml:"paths"`
+	Excludes      []string    `toml:"excludes"`
+	Tags          []string    `toml:"tags"`
+	PreHooks      []string    `toml:"pre_hooks"`
+	PostHooks     []string    `toml:"post_hooks"`
+	OneFileSystem bool        `toml:"one_file_system"`
+	Timeout       string      `toml:"timeout"`
+	Attempts      int         `toml:"attempts"`
+	RetryDelay    string      `toml:"retry_delay"`
+	LimitUpload   int         `toml:"limit_upload"`
+	Compression   string      `toml:"compression"`
+	PackSize      int         `toml:"pack_size"`
+	Dumps         DumpOptions `toml:"dumps"`
+}
+
+// DumpOptions configures consistent PostgreSQL and MySQL dumps before restic.
+type DumpOptions struct {
+	Dir      string        `toml:"dir"`
+	Keep     int           `toml:"keep"`
+	Postgres *PostgresDump `toml:"postgres"`
+	MySQL    *MySQLDump    `toml:"mysql"`
+}
+
+// PostgresDump configures pg_dump.
+type PostgresDump struct {
+	Enabled      bool     `toml:"enabled"`
+	Databases    []string `toml:"databases"`
+	Host         string   `toml:"host"`
+	Port         int      `toml:"port"`
+	User         string   `toml:"user"`
+	PasswordFile string   `toml:"password_file"`
+	Binary       string   `toml:"binary"`
+}
+
+// MySQLDump configures mysqldump.
+type MySQLDump struct {
+	Enabled      bool     `toml:"enabled"`
+	Databases    []string `toml:"databases"`
+	Host         string   `toml:"host"`
+	Port         int      `toml:"port"`
+	User         string   `toml:"user"`
+	PasswordFile string   `toml:"password_file"`
+	Binary       string   `toml:"binary"`
 }
 
 // Retention is passed to restic forget.
@@ -249,8 +280,11 @@ func Default() *Config {
 			All:      true,
 			Storage:  "local-lvm",
 		},
-		Backup: Backup{Profile: "host", Timeout: "6h", Attempts: 3, RetryDelay: "1m", Compression: "auto"},
-		Check:  Check{Timeout: "2h"},
+		Backup: Backup{Profile: "host", Timeout: "6h", Attempts: 3, RetryDelay: "1m", Compression: "auto", Dumps: DumpOptions{
+			Dir:  "/var/lib/jealous-vault/dumps",
+			Keep: 3,
+		}},
+		Check: Check{Timeout: "2h"},
 		Notify: Notify{
 			Timeout: "10s",
 			Email: Email{
@@ -405,6 +439,28 @@ func (c *Config) finish() error {
 	}
 	if c.Backup.Compression == "" {
 		c.Backup.Compression = "auto"
+	}
+	if c.Backup.Dumps.Dir == "" {
+		c.Backup.Dumps.Dir = "/var/lib/jealous-vault/dumps"
+	}
+	if c.Job != "default" && c.Backup.Dumps.Dir == "/var/lib/jealous-vault/dumps" {
+		c.Backup.Dumps.Dir = filepath.Join(filepath.Dir(DefaultStateFile), c.Job, "dumps")
+	}
+	if c.Backup.Dumps.Postgres != nil {
+		if c.Backup.Dumps.Postgres.Port == 0 {
+			c.Backup.Dumps.Postgres.Port = 5432
+		}
+		if c.Backup.Dumps.Postgres.Binary == "" {
+			c.Backup.Dumps.Postgres.Binary = "pg_dump"
+		}
+	}
+	if c.Backup.Dumps.MySQL != nil {
+		if c.Backup.Dumps.MySQL.Port == 0 {
+			c.Backup.Dumps.MySQL.Port = 3306
+		}
+		if c.Backup.Dumps.MySQL.Binary == "" {
+			c.Backup.Dumps.MySQL.Binary = "mysqldump"
+		}
 	}
 	if c.Check.Timeout == "" {
 		c.Check.Timeout = "2h"
@@ -658,6 +714,9 @@ func (c *Config) Validate() error {
 	if c.Backup.PackSize < 0 {
 		return errors.New("backup.pack_size must not be negative")
 	}
+	if err := validateDumps(&c.Backup.Dumps); err != nil {
+		return err
+	}
 	if c.CheckTimeout <= 0 {
 		return errors.New("check.timeout must be positive")
 	}
@@ -743,6 +802,54 @@ func validServiceName(name string) bool {
 		return false
 	}
 	return true
+}
+
+func validateDumps(d *DumpOptions) error {
+	if d.Dir != "" && !filepath.IsAbs(d.Dir) {
+		return fmt.Errorf("backup.dumps.dir %q must be absolute", d.Dir)
+	}
+	if d.Keep < 0 {
+		return errors.New("backup.dumps.keep must not be negative")
+	}
+	if p := d.Postgres; p != nil && p.Enabled {
+		if err := validateDumpTarget("postgres", p.Databases, p.Port, p.PasswordFile, p.Binary); err != nil {
+			return err
+		}
+	}
+	if m := d.MySQL; m != nil && m.Enabled {
+		if err := validateDumpTarget("mysql", m.Databases, m.Port, m.PasswordFile, m.Binary); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateDumpTarget(name string, databases []string, port int, passwordFile, binary string) error {
+	if len(databases) == 0 {
+		return fmt.Errorf("backup.dumps.%s.databases is empty", name)
+	}
+	for i, database := range databases {
+		if database == "" || database == "." || database == ".." {
+			return fmt.Errorf("backup.dumps.%s.databases[%d] is invalid", name, i)
+		}
+		for _, r := range database {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+				r == '_' || r == '-' || r == '.' {
+				continue
+			}
+			return fmt.Errorf("backup.dumps.%s.databases[%d] %q contains invalid characters", name, i, database)
+		}
+	}
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("backup.dumps.%s.port %d is out of range", name, port)
+	}
+	if passwordFile != "" && !filepath.IsAbs(passwordFile) {
+		return fmt.Errorf("backup.dumps.%s.password_file %q must be absolute", name, passwordFile)
+	}
+	if binary == "" {
+		return fmt.Errorf("backup.dumps.%s.binary is empty", name)
+	}
+	return nil
 }
 
 func parseDuration(key, value string) (time.Duration, error) {

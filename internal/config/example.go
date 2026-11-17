@@ -166,6 +166,28 @@ compression = "auto"
 # MiB, 0 keeps the restic default.
 pack_size = 0
 
+[backup.dumps]
+# Consistent database dumps are taken before restic and pruned after a
+# successful backup. The directory is added to restic paths automatically.
+dir = %s
+keep = 3
+# [backup.dumps.postgres]
+# enabled = false
+# databases = ["app"]
+# host = "127.0.0.1"
+# port = 5432
+# user = "postgres"
+# password_file = "/etc/jealous-vault/pg.pass"
+# binary = "pg_dump"
+# [backup.dumps.mysql]
+# enabled = false
+# databases = ["app"]
+# host = "127.0.0.1"
+# port = 3306
+# user = "backup"
+# password_file = "/etc/jealous-vault/mysql.pass"
+# binary = "mysqldump"
+
 [retention]
 keep_last = 3
 keep_daily = 7
@@ -274,7 +296,7 @@ password_file = ""
 password_env = ""
 security = "starttls"
 timeout = "15s"
-`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), o.Proxmox)
+`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), quote(filepath.Join(filepath.Dir(stateFile), "dumps")), o.Proxmox)
 
 	return b.String()
 }
