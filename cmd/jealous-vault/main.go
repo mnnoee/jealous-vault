@@ -25,6 +25,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/doctor"
 	"github.com/mnnoee/jealous-vault/internal/hooks"
+	"github.com/mnnoee/jealous-vault/internal/lock"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
@@ -176,6 +177,25 @@ func prepareRepository(cfg *config.Config) error {
 	return sftp.EnsureConfig(cfg)
 }
 
+// acquireRunLock returns busy=true when another backup, check or restore is
+// already running. Busy is not an error, the caller exits successfully.
+func acquireRunLock(cfg *config.Config, command string) (runLock *lock.Lock, busy bool, err error) {
+	runLock, err = lock.Acquire(cfg.LockFile, lock.Info{
+		PID:       os.Getpid(),
+		Command:   command,
+		StartedAt: time.Now(),
+	})
+	if err == nil {
+		return runLock, false, nil
+	}
+	var busyErr *lock.BusyError
+	if errors.As(err, &busyErr) {
+		fmt.Fprintf(os.Stderr, "jealous-vault: %v, skip\n", busyErr)
+		return nil, true, nil
+	}
+	return nil, false, err
+}
+
 func cmdInit(ctx context.Context, args []string) error {
 	fs := newFlagSet("init")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file to write")
@@ -275,6 +295,14 @@ func cmdRepoInit(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "repo init")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	return initRepository(ctx, cfg, newLogger(*verbose))
 }
 
@@ -295,6 +323,14 @@ func cmdRepoUnlock(ctx context.Context, args []string) error {
 	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "repo unlock")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	if err := resticClient(cfg, newLogger(*verbose)).Unlock(ctx); err != nil {
 		return err
 	}
@@ -480,6 +516,14 @@ func cmdBackup(ctx context.Context, args []string) error {
 	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "backup")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	if *noPrune {
 		cfg.Retention.Prune = false
 	}
@@ -703,6 +747,14 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "restore")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	plan.Host = cfg.Host
 	fmt.Print(plan.Describe())
 	if plan.Dangerous() && !*yes {
@@ -769,6 +821,14 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "test-restore")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	target := *targetDir
 	if target == "" {
 		target = restore.TestTarget("", time.Now())
@@ -812,6 +872,14 @@ func cmdCheck(ctx context.Context, args []string) error {
 	if err := prepareRepository(cfg); err != nil {
 		return err
 	}
+	runLock, busy, err := acquireRunLock(cfg, "check")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
 	if *readDataSubset != "" {
 		cfg.Check.ReadDataSubset = *readDataSubset
 	}
@@ -875,6 +943,8 @@ func cmdDoctor(ctx context.Context, args []string) error {
 
 type statusOutput struct {
 	Stale       bool       `json:"stale"`
+	Running     bool       `json:"running"`
+	CurrentRun  *lock.Info `json:"current_run,omitempty"`
 	AgeSeconds  float64    `json:"age_seconds"`
 	MaxAge      string     `json:"max_age"`
 	LastRun     *state.Run `json:"last_run,omitempty"`
@@ -903,6 +973,7 @@ func cmdStatus(args []string) error {
 	if err != nil {
 		return err
 	}
+	runInfo, running := lock.Inspect(cfg.LockFile)
 
 	now := time.Now()
 	var age time.Duration
@@ -914,11 +985,15 @@ func cmdStatus(args []string) error {
 
 	out := statusOutput{
 		Stale:       stale,
+		Running:     running,
 		AgeSeconds:  age.Seconds(),
 		MaxAge:      maxAge.String(),
 		LastRun:     st.LastRun,
 		LastSuccess: st.LastSuccess,
 		LastCheck:   st.LastCheck,
+	}
+	if running && runInfo.PID != 0 {
+		out.CurrentRun = &runInfo
 	}
 
 	if *asJSON {
@@ -930,6 +1005,14 @@ func cmdStatus(args []string) error {
 	} else {
 		fmt.Printf("host:        %s\n", cfg.Host)
 		fmt.Printf("repository:  %s\n", cfg.RedactedRepository())
+		switch {
+		case running && runInfo.PID != 0:
+			fmt.Printf("running:     %s since %s (pid %d)\n", runInfo.Command, runInfo.StartedAt.Format(time.RFC3339), runInfo.PID)
+		case running:
+			fmt.Println("running:     another process")
+		default:
+			fmt.Println("running:     no")
+		}
 		fmt.Println()
 		printStatusLine("last run", st.LastRun, now)
 		printStatusLine("last success", st.LastSuccess, now)

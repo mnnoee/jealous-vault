@@ -45,6 +45,9 @@ paths = ["/etc"]
 	if cfg.ResticBinary != "restic" {
 		t.Errorf("restic binary = %q, want restic", cfg.ResticBinary)
 	}
+	if cfg.LockFile != "/tmp/backup.lock" {
+		t.Errorf("lock file = %q, want /tmp/backup.lock", cfg.LockFile)
+	}
 	if cfg.BackupTimeout != 6*time.Hour {
 		t.Errorf("backup timeout = %s, want 6h", cfg.BackupTimeout)
 	}
@@ -117,6 +120,11 @@ func TestValidate(t *testing.T) {
 			name: "unknown profile",
 			mod:  func(c *Config) { c.Backup.Profile = "everything" },
 			want: "backup.profile",
+		},
+		{
+			name: "relative lock file",
+			mod:  func(c *Config) { c.LockFile = "backup.lock" },
+			want: "lock_file",
 		},
 		{
 			name: "relative state file",
