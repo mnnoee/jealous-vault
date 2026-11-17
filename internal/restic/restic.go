@@ -338,6 +338,61 @@ func (c *Client) Init(ctx context.Context) error {
 	return nil
 }
 
+// Version returns the first line of "restic version".
+func (c *Client) Version(ctx context.Context) (string, error) {
+	cmd := c.command(ctx, "version")
+	var stdout, stderr tailBuffer
+	stdout.max = 4 << 10
+	stderr.max = 4 << 10
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return "", commandError("version", err, stderr.String())
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(stdout.String()), "\n")
+	return line, nil
+}
+
+// CheckAccess verifies that the repository exists and the credentials work.
+func (c *Client) CheckAccess(ctx context.Context) error {
+	cmd := c.command(ctx, "cat", "config")
+	cmd.Stdout = io.Discard
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return commandError("cat config", err, stderr.String())
+	}
+	return nil
+}
+
+// Unlock removes stale locks. Restic keeps locks held by live processes.
+func (c *Client) Unlock(ctx context.Context) error {
+	cmd := c.command(ctx, "unlock")
+	cmd.Stdout = io.Discard
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return commandError("unlock", err, stderr.String())
+	}
+	return nil
+}
+
+// IsLockError reports whether restic failed because the repository is locked.
+func IsLockError(err error) bool {
+	if err == nil {
+		return false
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "already locked") ||
+		strings.Contains(text, "create lock") ||
+		strings.Contains(text, "lock file already exists")
+}
+
 func commandError(command string, err error, stderr string) error {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		return errors.New("restic is not installed or not found in PATH")

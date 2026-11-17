@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/doctor"
 	"github.com/mnnoee/jealous-vault/internal/hooks"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
@@ -90,6 +91,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdTestRestore(ctx, args[1:])
 	case "check":
 		return cmdCheck(ctx, args[1:])
+	case "doctor":
+		return cmdDoctor(ctx, args[1:])
 	case "status":
 		return cmdStatus(args[1:])
 	case "version":
@@ -119,6 +122,7 @@ Commands:
   restore       restore a snapshot or the latest one
   test-restore  restore into a separate directory
   check         verify repository integrity
+  doctor        check restic, config, repository, paths and timers
   status        show the last run and whether the backup is fresh
   version       print version information
 
@@ -620,6 +624,45 @@ func cmdCheck(ctx context.Context, args []string) error {
 		printRun(run)
 	}
 	return err
+}
+
+func cmdDoctor(ctx context.Context, args []string) error {
+	fs := newFlagSet("doctor")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	asJSON := fs.Bool("json", false, "print the report as JSON")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		fmt.Printf("[fail] config %v\n", err)
+		return &exitError{code: 1, err: errors.New("configuration is not usable")}
+	}
+
+	report := doctor.Run(ctx, cfg, doctor.Options{Logger: newLogger(*verbose)})
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(report); err != nil {
+			return err
+		}
+	} else {
+		w := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+		for _, r := range report.Results {
+			fmt.Fprintf(w, "[%s]\t%s\t%s\n", r.Level, r.Name, r.Detail)
+		}
+		w.Flush()
+	}
+
+	if report.Failed {
+		return &exitError{code: 1, err: errors.New("doctor found problems")}
+	}
+	return nil
 }
 
 type statusOutput struct {

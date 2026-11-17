@@ -1,0 +1,255 @@
+// SPDX-FileCopyrightText: 2026 mnnoee
+// SPDX-License-Identifier: Apache-2.0
+
+// Package doctor performs read-only preflight checks before a backup.
+package doctor
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+
+	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/restic"
+)
+
+// Level is the outcome of one check.
+type Level string
+
+// Check levels.
+const (
+	LevelOK   Level = "ok"
+	LevelWarn Level = "warn"
+	LevelFail Level = "fail"
+)
+
+// Result is one check line.
+type Result struct {
+	Name   string `json:"name"`
+	Level  Level  `json:"level"`
+	Detail string `json:"detail"`
+}
+
+// Report is the full doctor output.
+type Report struct {
+	Results []Result `json:"results"`
+	Failed  bool     `json:"failed"`
+}
+
+// Options configures external commands.
+type Options struct {
+	Systemctl string
+	Logger    *slog.Logger
+}
+
+// Run checks the host, the config and the repository without changing data.
+func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
+	var report Report
+	add := func(name string, level Level, detail string) {
+		report.Results = append(report.Results, Result{Name: name, Level: level, Detail: detail})
+		if level == LevelFail {
+			report.Failed = true
+		}
+	}
+
+	checkConfigFile(cfg, add)
+	checkPassword(cfg, add)
+
+	client := restic.New(restic.Options{
+		Binary:       cfg.ResticBinary,
+		Repository:   cfg.Repository.URL,
+		PasswordFile: cfg.Repository.PasswordFile,
+		Env:          cfg.Repository.Env,
+		Logger:       opts.Logger,
+	})
+
+	resticAvailable := checkRestic(ctx, cfg, client, add)
+	if resticAvailable {
+		if err := client.CheckAccess(ctx); err != nil {
+			add("repository", LevelFail, err.Error())
+		} else {
+			add("repository", LevelOK, "accessible, password accepted")
+		}
+	} else {
+		add("repository", LevelFail, "skipped, restic is not available")
+	}
+
+	checkPaths(cfg, add)
+	stateDir := checkStateDir(cfg, add)
+	checkFreeSpace(stateDir, add)
+	checkSystemd(ctx, opts.Systemctl, add)
+	checkS3Credentials(cfg, add)
+	checkRetention(cfg, add)
+
+	return report
+}
+
+func checkConfigFile(cfg *config.Config, add func(string, Level, string)) {
+	info, err := os.Stat(cfg.Path)
+	if err != nil {
+		add("config", LevelFail, err.Error())
+		return
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		add("config", LevelWarn, fmt.Sprintf("%s is readable by group or others (%o)", cfg.Path, perm))
+		return
+	}
+	add("config", LevelOK, cfg.Path)
+}
+
+func checkPassword(cfg *config.Config, add func(string, Level, string)) {
+	if cfg.Repository.PasswordFile == "" {
+		if cfg.Repository.Env["RESTIC_PASSWORD"] != "" {
+			add("password", LevelOK, "provided by RESTIC_PASSWORD")
+			return
+		}
+		add("password", LevelFail, "no password file and no RESTIC_PASSWORD")
+		return
+	}
+	info, err := os.Stat(cfg.Repository.PasswordFile)
+	if err != nil {
+		add("password", LevelFail, err.Error())
+		return
+	}
+	if info.Size() == 0 {
+		add("password", LevelFail, cfg.Repository.PasswordFile+" is empty")
+		return
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		add("password", LevelWarn, fmt.Sprintf("%s is readable by group or others (%o)", cfg.Repository.PasswordFile, perm))
+		return
+	}
+	add("password", LevelOK, cfg.Repository.PasswordFile)
+}
+
+func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client, add func(string, Level, string)) bool {
+	if _, err := exec.LookPath(cfg.ResticBinary); err != nil {
+		add("restic", LevelFail, fmt.Sprintf("%s not found in PATH", cfg.ResticBinary))
+		return false
+	}
+	version, err := client.Version(ctx)
+	if err != nil {
+		add("restic", LevelFail, err.Error())
+		return false
+	}
+	add("restic", LevelOK, version)
+	return true
+}
+
+func checkPaths(cfg *config.Config, add func(string, Level, string)) {
+	var missing []string
+	for _, p := range cfg.Backup.Paths {
+		if _, err := os.Stat(p); err != nil {
+			missing = append(missing, p)
+		}
+	}
+	if len(missing) > 0 {
+		add("paths", LevelFail, "missing: "+strings.Join(missing, ", "))
+		return
+	}
+	add("paths", LevelOK, fmt.Sprintf("%d paths exist", len(cfg.Backup.Paths)))
+}
+
+func checkStateDir(cfg *config.Config, add func(string, Level, string)) string {
+	dir := filepath.Dir(cfg.StateFile)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		add("state", LevelFail, err.Error())
+		return dir
+	}
+	f, err := os.CreateTemp(dir, ".doctor-*")
+	if err != nil {
+		add("state", LevelFail, fmt.Sprintf("%s is not writable: %v", dir, err))
+		return dir
+	}
+	name := f.Name()
+	f.Close()
+	os.Remove(name)
+	add("state", LevelOK, dir+" is writable")
+	return dir
+}
+
+func checkFreeSpace(dir string, add func(string, Level, string)) {
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(dir, &stat); err != nil {
+		add("disk", LevelWarn, "cannot read free space: "+err.Error())
+		return
+	}
+	free := uint64(stat.Bavail) * uint64(stat.Bsize)
+	const minimum = 1 << 30
+	if free < minimum {
+		add("disk", LevelWarn, fmt.Sprintf("%s free, less than 1 GiB", humanBytes(free)))
+		return
+	}
+	add("disk", LevelOK, humanBytes(free)+" free")
+}
+
+func checkSystemd(ctx context.Context, systemctl string, add func(string, Level, string)) {
+	if systemctl == "" {
+		systemctl = "systemctl"
+	}
+	if _, err := exec.LookPath(systemctl); err != nil {
+		add("systemd", LevelWarn, "systemctl not found, timers not checked")
+		return
+	}
+
+	var problems []string
+	for _, timer := range []string{"jealous-vault-backup.timer", "jealous-vault-check.timer"} {
+		if err := systemctlRun(ctx, systemctl, "is-enabled", timer); err != nil {
+			problems = append(problems, timer+" is not enabled")
+			continue
+		}
+		if err := systemctlRun(ctx, systemctl, "is-active", timer); err != nil {
+			problems = append(problems, timer+" is not active")
+		}
+	}
+	if len(problems) > 0 {
+		add("systemd", LevelWarn, strings.Join(problems, ", "))
+		return
+	}
+	add("systemd", LevelOK, "backup and check timers are enabled and active")
+}
+
+func systemctlRun(ctx context.Context, systemctl string, args ...string) error {
+	cmd := exec.CommandContext(ctx, systemctl, args...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
+}
+
+func checkS3Credentials(cfg *config.Config, add func(string, Level, string)) {
+	if !strings.HasPrefix(cfg.Repository.URL, "s3:") {
+		return
+	}
+	if cfg.Repository.Env["AWS_ACCESS_KEY_ID"] != "" && cfg.Repository.Env["AWS_SECRET_ACCESS_KEY"] != "" {
+		add("s3", LevelOK, "AWS credentials are set")
+		return
+	}
+	add("s3", LevelWarn, "AWS credentials are not set in the config env, instance role may still work")
+}
+
+func checkRetention(cfg *config.Config, add func(string, Level, string)) {
+	if !cfg.HasRetention() {
+		add("retention", LevelWarn, "no retention policy, snapshots will grow forever")
+		return
+	}
+	add("retention", LevelOK, strings.Join(cfg.RetentionArgs(), " "))
+}
+
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
