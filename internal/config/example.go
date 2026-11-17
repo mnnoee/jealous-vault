@@ -54,6 +54,7 @@ func PresetFor(profile string, proxmox bool) Preset {
 			"/mnt",
 			"/media",
 			"/lost+found",
+			"/etc/jealous-vault",
 			"**/*.tmp",
 			"**/node_modules",
 		}
@@ -130,6 +131,8 @@ password_file = %s
 # host: OS configuration and data, without VM dump archives.
 # vm-dumps: only Proxmox dump archives.
 # custom: no defaults, everything comes from this file.
+# Agent secrets under /etc/jealous-vault are excluded on purpose: the backup
+# must not contain the repository password or the notification credentials.
 profile = %s
 paths = %s
 excludes = %s
@@ -183,6 +186,8 @@ storage = "local-lvm"
 
 [copy]
 # Optional second repository for 3-2-1. Use a separate password.
+# Destination credentials go in copy.env or copy.env_file; repository.env is
+# intentionally not inherited by the copy process.
 enabled = false
 schedule = "*-*-* 05:00:00"
 repository = ""
@@ -278,5 +283,8 @@ func WriteExample(path string, o InitOptions, force bool) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(body), 0o600)
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }

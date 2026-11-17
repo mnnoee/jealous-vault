@@ -255,7 +255,7 @@ func TestLoadEnvFile(t *testing.T) {
 # comment
 AWS_ACCESS_KEY_ID=key
 export AWS_SECRET_ACCESS_KEY="secret"
-QUOTED='value'
+RESTIC_QUOTED='value'
 `)
 
 	env, err := LoadEnvFile(envPath)
@@ -268,20 +268,20 @@ QUOTED='value'
 	if env["AWS_SECRET_ACCESS_KEY"] != "secret" {
 		t.Errorf("AWS_SECRET_ACCESS_KEY = %q", env["AWS_SECRET_ACCESS_KEY"])
 	}
-	if env["QUOTED"] != "value" {
-		t.Errorf("QUOTED = %q", env["QUOTED"])
+	if env["RESTIC_QUOTED"] != "value" {
+		t.Errorf("RESTIC_QUOTED = %q", env["RESTIC_QUOTED"])
 	}
 }
 
 func TestEnvFileMergePrefersExplicitValues(t *testing.T) {
 	dir := t.TempDir()
-	envPath := writeFile(t, dir, "restic.env", "FOO=from-file\nBAR=bar\n")
+	envPath := writeFile(t, dir, "restic.env", "RESTIC_FOO=from-file\nRESTIC_BAR=bar\n")
 	configPath := writeFile(t, dir, "config.toml", `
 [repository]
 url = "local:/srv/backup"
 password_file = "/tmp/pass"
 env_file = `+quote(envPath)+`
-env = { FOO = "explicit" }
+env = { RESTIC_FOO = "explicit" }
 
 [backup]
 paths = ["/etc"]
@@ -291,11 +291,11 @@ paths = ["/etc"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Repository.Env["FOO"] != "explicit" {
-		t.Errorf("FOO = %q, want explicit", cfg.Repository.Env["FOO"])
+	if cfg.Repository.Env["RESTIC_FOO"] != "explicit" {
+		t.Errorf("RESTIC_FOO = %q, want explicit", cfg.Repository.Env["RESTIC_FOO"])
 	}
-	if cfg.Repository.Env["BAR"] != "bar" {
-		t.Errorf("BAR = %q, want bar", cfg.Repository.Env["BAR"])
+	if cfg.Repository.Env["RESTIC_BAR"] != "bar" {
+		t.Errorf("RESTIC_BAR = %q, want bar", cfg.Repository.Env["RESTIC_BAR"])
 	}
 }
 

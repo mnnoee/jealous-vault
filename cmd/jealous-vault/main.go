@@ -186,7 +186,12 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 	})
 }
 
-func prepareRepository(cfg *config.Config) error {
+// prepare checks secret file permissions and the SFTP configuration before any
+// command starts a restic process.
+func prepare(cfg *config.Config) error {
+	if err := cfg.CheckSecretFiles(); err != nil {
+		return err
+	}
 	return sftp.EnsureConfig(cfg)
 }
 
@@ -341,7 +346,7 @@ func cmdRepoUnlock(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "repo unlock")
@@ -381,7 +386,7 @@ func cmdRepoStats(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	stats, err := resticClient(cfg, newLogger(*verbose)).Stats(ctx, *mode)
@@ -402,7 +407,7 @@ func cmdRepoStats(ctx context.Context, args []string) error {
 }
 
 func initRepository(ctx context.Context, cfg *config.Config, log *slog.Logger) error {
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	if err := resticClient(cfg, log).Init(ctx); err != nil {
@@ -440,6 +445,9 @@ func writeInitialConfig(path string, opts config.InitOptions, force bool) (strin
 			return "", err
 		}
 	}
+	if err := os.Chmod(opts.PasswordFile, 0o600); err != nil {
+		return "", err
+	}
 	return opts.PasswordFile, nil
 }
 
@@ -467,7 +475,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	log := newLogger(*verbose)
@@ -534,7 +542,7 @@ func cmdBackup(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "backup")
@@ -601,7 +609,7 @@ func cmdVzdump(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "vzdump")
@@ -690,7 +698,7 @@ func cmdRestoreVM(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "restore-vm")
@@ -803,7 +811,7 @@ func cmdRepoDiff(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	client := resticClient(cfg, newLogger(*verbose))
@@ -838,7 +846,7 @@ func cmdRepoDelete(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "repo delete")
@@ -893,7 +901,7 @@ func cmdRepoCopy(ctx context.Context, args []string) error {
 	if cfg.Copy.PasswordFile == cfg.Repository.PasswordFile {
 		return errors.New("copy.password_file must differ from the primary repository password")
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "repo copy")
@@ -958,7 +966,7 @@ func cmdSnapshots(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	client := resticClient(cfg, newLogger(*verbose))
@@ -1018,7 +1026,7 @@ func cmdMount(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	client := resticClient(cfg, newLogger(*verbose))
@@ -1121,7 +1129,7 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "restore")
@@ -1190,6 +1198,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	timeoutFlag := fs.Duration("timeout", 0, "override verify.timeout")
 	keep := fs.Bool("keep", false, "keep an automatic target directory on success")
 	noNotify := fs.Bool("no-notify", false, "do not send alerts")
+	yes := fs.Bool("yes", false, "confirm a restore into a system directory")
 	asJSON := fs.Bool("json", false, "print the result as JSON")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
@@ -1203,7 +1212,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "test-restore")
@@ -1359,6 +1368,10 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	}
 	plan.Host = cfg.Host
 	plan.Verify = level == "files"
+	safeRoot := filepath.Join(filepath.Dir(cfg.StateFile), "verify")
+	if plan.Dangerous(safeRoot) && !*yes {
+		return finish(state.StatusFailed, fmt.Errorf("%w, pass --yes", restore.ErrDangerous))
+	}
 
 	fmt.Printf("restoring %s into %s, level %s\n", snapshot.ShortID, target, level)
 	restoreCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -1427,7 +1440,7 @@ func cmdCheck(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := prepare(cfg); err != nil {
 		return err
 	}
 	runLock, busy, err := acquireRunLock(cfg, "check")
@@ -1474,7 +1487,7 @@ func cmdDoctor(ctx context.Context, args []string) error {
 		fmt.Printf("[fail] config %v\n", err)
 		return &exitError{code: 1, err: errors.New("configuration is not usable")}
 	}
-	if err := prepareRepository(cfg); err != nil {
+	if err := sftp.EnsureConfig(cfg); err != nil {
 		fmt.Printf("[fail] sftp %v\n", err)
 		return &exitError{code: 1, err: errors.New("sftp configuration is not usable")}
 	}

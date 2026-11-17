@@ -64,6 +64,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 
 	checkConfigFile(cfg, add)
 	checkPassword(cfg, add)
+	checkSecretFiles(cfg, add)
 
 	client := restic.New(restic.Options{
 		Binary:       cfg.ResticBinary,
@@ -86,6 +87,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	}
 
 	checkPaths(cfg, add)
+	checkBackupSecrets(cfg, add)
 	stateDir := checkStateDir(cfg, add)
 	checkFreeSpace(stateDir, add)
 	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, add)
@@ -103,13 +105,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 }
 
 func checkConfigFile(cfg *config.Config, add func(string, Level, string)) {
-	info, err := os.Stat(cfg.Path)
-	if err != nil {
+	if err := config.CheckSecretFile("config", cfg.Path); err != nil {
 		add("config", LevelFail, err.Error())
-		return
-	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		add("config", LevelWarn, fmt.Sprintf("%s is readable by group or others (%o)", cfg.Path, perm))
 		return
 	}
 	add("config", LevelOK, cfg.Path)
@@ -133,11 +130,71 @@ func checkPassword(cfg *config.Config, add func(string, Level, string)) {
 		add("password", LevelFail, cfg.Repository.PasswordFile+" is empty")
 		return
 	}
-	if perm := info.Mode().Perm(); perm&0o077 != 0 {
-		add("password", LevelWarn, fmt.Sprintf("%s is readable by group or others (%o)", cfg.Repository.PasswordFile, perm))
+	if err := config.CheckSecretFile("password", cfg.Repository.PasswordFile); err != nil {
+		add("password", LevelFail, err.Error())
 		return
 	}
 	add("password", LevelOK, cfg.Repository.PasswordFile)
+}
+
+func checkSecretFiles(cfg *config.Config, add func(string, Level, string)) {
+	checks := []struct {
+		label string
+		path  string
+	}{
+		{"repository.env_file", cfg.Repository.EnvFile},
+		{"repository.sftp_key_file", cfg.Repository.SFTPKeyFile},
+		{"copy.password_file", cfg.Copy.PasswordFile},
+		{"copy.env_file", cfg.Copy.EnvFile},
+		{"notify.email.password_file", cfg.Notify.Email.PasswordFile},
+	}
+	for _, check := range checks {
+		if check.path == "" {
+			continue
+		}
+		if err := config.CheckSecretFile(check.label, check.path); err != nil {
+			add(check.label, LevelFail, err.Error())
+		}
+	}
+}
+
+func checkBackupSecrets(cfg *config.Config, add func(string, Level, string)) {
+	secrets := []string{
+		cfg.Repository.PasswordFile,
+		cfg.Repository.EnvFile,
+		cfg.Repository.SFTPKeyFile,
+		cfg.Copy.PasswordFile,
+		cfg.Copy.EnvFile,
+		cfg.Notify.Email.PasswordFile,
+	}
+	var exposed []string
+	for _, secret := range secrets {
+		if secret == "" || secretExcluded(secret, cfg.Backup.Excludes) {
+			continue
+		}
+		for _, root := range cfg.Backup.Paths {
+			if root == "/" || secret == root || strings.HasPrefix(secret, strings.TrimSuffix(root, "/")+"/") {
+				exposed = append(exposed, secret)
+				break
+			}
+		}
+	}
+	if len(exposed) > 0 {
+		add("backup secrets", LevelWarn, "secret files are inside backup paths: "+strings.Join(exposed, ", "))
+	}
+}
+
+func secretExcluded(path string, patterns []string) bool {
+	for _, pattern := range patterns {
+		pattern = strings.TrimSuffix(pattern, "/")
+		if pattern == "" {
+			continue
+		}
+		if path == pattern || strings.HasPrefix(path, pattern+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client, add func(string, Level, string)) bool {

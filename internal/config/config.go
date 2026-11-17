@@ -389,6 +389,9 @@ func (c *Config) finish() error {
 			return errors.New("notify.email: set only one of password_file and password_env")
 		}
 		if c.Notify.Email.PasswordFile != "" {
+			if err := CheckSecretFile("notify.email.password_file", c.Notify.Email.PasswordFile); err != nil {
+				return err
+			}
 			data, err := os.ReadFile(c.Notify.Email.PasswordFile)
 			if err != nil {
 				return fmt.Errorf("notify.email.password_file: %w", err)
@@ -456,6 +459,16 @@ func (c *Config) Validate() error {
 	}
 	if c.Repository.PasswordFile == "" && c.Repository.Env["RESTIC_PASSWORD"] == "" {
 		return errors.New("repository.password_file or RESTIC_PASSWORD in repository.env is required")
+	}
+	for key := range c.Repository.Env {
+		if err := ValidateEnvKey(key); err != nil {
+			return fmt.Errorf("repository.env: %w", err)
+		}
+	}
+	for key := range c.Copy.Env {
+		if err := ValidateEnvKey(key); err != nil {
+			return fmt.Errorf("copy.env: %w", err)
+		}
 	}
 	sftpFields := c.Repository.SFTPKeyFile != "" || c.Repository.SFTPKnownHosts != "" || c.Repository.SFTPConfig != ""
 	if sftpFields && !strings.HasPrefix(c.Repository.URL, "sftp:") {
@@ -675,6 +688,9 @@ func RedactURL(raw string) string {
 // LoadEnvFile reads simple KEY=VALUE lines. Blank lines and lines starting
 // with # are ignored. A leading "export " is accepted.
 func LoadEnvFile(path string) (map[string]string, error) {
+	if err := CheckSecretFile("env file", path); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -693,6 +709,9 @@ func LoadEnvFile(path string) (map[string]string, error) {
 		key = strings.TrimSpace(key)
 		if key == "" {
 			return nil, fmt.Errorf("line %d: empty key", i+1)
+		}
+		if err := ValidateEnvKey(key); err != nil {
+			return nil, fmt.Errorf("line %d: %w", i+1, err)
 		}
 		value = strings.TrimSpace(value)
 		if len(value) >= 2 {
