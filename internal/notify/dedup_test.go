@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -191,5 +193,55 @@ func TestSuppressedAlertStillPings(t *testing.T) {
 	}
 	if pings != 2 {
 		t.Errorf("ping calls = %d, want 2", pings)
+	}
+}
+
+func TestDedupMarksWhenOneChannelSucceeds(t *testing.T) {
+	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
+	srv, requests := recorder(t, http.StatusBadRequest)
+
+	dir := t.TempDir()
+	messageFile := filepath.Join(dir, "message")
+	sendmail := filepath.Join(dir, "sendmail")
+	script := "#!/bin/sh\ncat >> " + messageFile + "\n"
+	if err := os.WriteFile(sendmail, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	notifier := New(Options{
+		Webhooks:  []string{srv.URL + "/hook"},
+		DedupFile: filepath.Join(dir, "alerts.json"),
+		Now:       func() time.Time { return now },
+		Timeout:   time.Second,
+		Email: EmailOptions{
+			Enabled:  true,
+			Mode:     "local",
+			From:     "backups@example.com",
+			To:       []string{"admin@example.com"},
+			Sendmail: sendmail,
+			Timeout:  time.Second,
+		},
+	})
+
+	ev := Event{Event: "backup", Status: "failed", Host: "node-1", Error: "disk full", Time: now}
+	if err := notifier.Send(context.Background(), ev); err == nil {
+		t.Fatal("expected the webhook error")
+	}
+	if err := notifier.Send(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := requests(); len(got) != 1 {
+		t.Fatalf("webhook calls = %d, want 1", len(got))
+	}
+	data, err := os.ReadFile(messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(data), "Subject: [JealousVault]"); got != 1 {
+		t.Fatalf("email messages = %d, want 1", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "alerts.json")); err != nil {
+		t.Fatalf("dedup state was not saved: %v", err)
 	}
 }

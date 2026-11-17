@@ -124,24 +124,31 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 	}
 
 	var channelErrs []error
+	sent := false
 	if notify {
 		for _, hook := range n.webhooks {
 			if err := n.postJSON(ctx, hook, ev); err != nil {
 				channelErrs = append(channelErrs, fmt.Errorf("webhook %s: %w", hook, err))
+			} else {
+				sent = true
 			}
 		}
 		if n.telegramToken != "" {
 			if err := n.telegram(ctx, ev); err != nil {
 				channelErrs = append(channelErrs, fmt.Errorf("telegram: %w", err))
+			} else {
+				sent = true
 			}
 		}
 		if n.email != nil {
 			if err := n.email.Send(ctx, ev); err != nil {
 				channelErrs = append(channelErrs, fmt.Errorf("email: %w", err))
+			} else {
+				sent = true
 			}
 		}
 	}
-	if notify && ev.Status != statusSuccess && len(channelErrs) == 0 && n.hasChannels() {
+	if notify && ev.Status != statusSuccess && n.hasChannels() && (sent || len(channelErrs) == 0) {
 		if err := n.limiter.MarkSent(ev); err != nil {
 			n.log.Warn("cannot save alert deduplication state", "error", err)
 		}
