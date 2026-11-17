@@ -49,7 +49,7 @@ func Acquire(path string, info Info) (*Lock, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (l *Lock) Release() error {
 
 // Inspect reports whether the lock is currently held and by whom.
 func Inspect(path string) (Info, bool) {
-	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
 		return Info{}, false
 	}

@@ -59,6 +59,28 @@ func TestAcquireBusyAndRelease(t *testing.T) {
 	}
 }
 
+func TestAcquireRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	if err := os.WriteFile(target, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "backup.lock")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Acquire(path, Info{PID: os.Getpid()}); err == nil {
+		t.Fatal("a symlinked lock file must be refused")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("the symlink target was modified: %q", data)
+	}
+}
+
 func TestReleaseTwice(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup.lock")
 	l, err := Acquire(path, Info{PID: os.Getpid(), Command: "backup", StartedAt: time.Now()})
