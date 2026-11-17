@@ -154,6 +154,14 @@ prune = true
 on_calendar = "*-*-* 03:30:00"
 randomized_delay = "1h"
 
+[freshness]
+# Fail when the last successful backup is older than this.
+max_age = "25h"
+# If the backup timer is disabled or masked, report a timer problem instead
+# of spamming stale backup alerts.
+respect_backup_timer = true
+schedule = "*-*-* 00,06,12,18:15:00"
+
 [check]
 # Optional subset for partial data verification, for example "5%%".
 read_data_subset = ""
@@ -169,6 +177,8 @@ post_hooks = []
 webhooks = []
 # healthchecks.io style URL. Success pings the URL, failure appends /fail.
 ping_url = ""
+# Separate check for the freshness timer, so its death is visible too.
+freshness_ping_url = ""
 telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false

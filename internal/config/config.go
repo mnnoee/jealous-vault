@@ -39,6 +39,7 @@ type Config struct {
 	Backup       Backup    `toml:"backup"`
 	Retention    Retention `toml:"retention"`
 	Schedule     Schedule  `toml:"schedule"`
+	Freshness    Freshness `toml:"freshness"`
 	Check        Check     `toml:"check"`
 	Restore      Restore   `toml:"restore"`
 	Notify       Notify    `toml:"notify"`
@@ -49,6 +50,7 @@ type Config struct {
 	CheckTimeout    time.Duration `toml:"-"`
 	NotifyTimeout   time.Duration `toml:"-"`
 	RandomizedDelay time.Duration `toml:"-"`
+	FreshnessMaxAge time.Duration `toml:"-"`
 }
 
 // Repo describes the restic repository and its credentials.
@@ -89,6 +91,13 @@ type Schedule struct {
 	RandomizedDelay string `toml:"randomized_delay"`
 }
 
+// Freshness controls the stale backup check.
+type Freshness struct {
+	MaxAge             string `toml:"max_age"`
+	RespectBackupTimer bool   `toml:"respect_backup_timer"`
+	Schedule           string `toml:"schedule"`
+}
+
 // Check controls the integrity check timer.
 type Check struct {
 	ReadDataSubset string `toml:"read_data_subset"`
@@ -103,12 +112,13 @@ type Restore struct {
 
 // Notify lists outbound notification channels.
 type Notify struct {
-	Webhooks        []string `toml:"webhooks"`
-	PingURL         string   `toml:"ping_url"`
-	TelegramToken   string   `toml:"telegram_token"`
-	TelegramChatID  string   `toml:"telegram_chat_id"`
-	NotifyOnSuccess bool     `toml:"notify_on_success"`
-	Timeout         string   `toml:"timeout"`
+	Webhooks         []string `toml:"webhooks"`
+	PingURL          string   `toml:"ping_url"`
+	FreshnessPingURL string   `toml:"freshness_ping_url"`
+	TelegramToken    string   `toml:"telegram_token"`
+	TelegramChatID   string   `toml:"telegram_chat_id"`
+	NotifyOnSuccess  bool     `toml:"notify_on_success"`
+	Timeout          string   `toml:"timeout"`
 }
 
 // Default returns a configuration with every non-secret value filled in.
@@ -128,6 +138,11 @@ func Default() *Config {
 		Schedule: Schedule{
 			OnCalendar:      "*-*-* 03:30:00",
 			RandomizedDelay: "1h",
+		},
+		Freshness: Freshness{
+			MaxAge:             "25h",
+			RespectBackupTimer: true,
+			Schedule:           "*-*-* 00,06,12,18:15:00",
 		},
 		Backup: Backup{Profile: "host", Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
@@ -192,6 +207,12 @@ func (c *Config) finish() error {
 	if c.Schedule.RandomizedDelay == "" {
 		c.Schedule.RandomizedDelay = "1h"
 	}
+	if c.Freshness.MaxAge == "" {
+		c.Freshness.MaxAge = "25h"
+	}
+	if c.Freshness.Schedule == "" {
+		c.Freshness.Schedule = "*-*-* 00,06,12,18:15:00"
+	}
 	if c.Backup.Profile == "" {
 		c.Backup.Profile = "host"
 	}
@@ -239,6 +260,9 @@ func (c *Config) finish() error {
 		return err
 	}
 	if c.RandomizedDelay, err = parseDuration("schedule.randomized_delay", c.Schedule.RandomizedDelay); err != nil {
+		return err
+	}
+	if c.FreshnessMaxAge, err = parseDuration("freshness.max_age", c.Freshness.MaxAge); err != nil {
 		return err
 	}
 
@@ -297,6 +321,15 @@ func (c *Config) Validate() error {
 	if c.RandomizedDelay < 0 {
 		return errors.New("schedule.randomized_delay must not be negative")
 	}
+	if c.Freshness.MaxAge == "" {
+		return errors.New("freshness.max_age is empty")
+	}
+	if c.FreshnessMaxAge <= 0 {
+		return errors.New("freshness.max_age must be positive")
+	}
+	if c.Freshness.Schedule == "" {
+		return errors.New("freshness.schedule is empty")
+	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")
 	}
@@ -315,6 +348,11 @@ func (c *Config) Validate() error {
 		!strings.HasPrefix(c.Notify.PingURL, "http://") &&
 		!strings.HasPrefix(c.Notify.PingURL, "https://") {
 		return fmt.Errorf("notify.ping_url %q must be an http or https URL", c.Notify.PingURL)
+	}
+	if c.Notify.FreshnessPingURL != "" &&
+		!strings.HasPrefix(c.Notify.FreshnessPingURL, "http://") &&
+		!strings.HasPrefix(c.Notify.FreshnessPingURL, "https://") {
+		return fmt.Errorf("notify.freshness_ping_url %q must be an http or https URL", c.Notify.FreshnessPingURL)
 	}
 	return nil
 }

@@ -172,3 +172,21 @@ func TestText(t *testing.T) {
 		}
 	}
 }
+
+func TestFreshnessPing(t *testing.T) {
+	srv, requests := recorder(t, http.StatusOK)
+	n := New(Options{
+		PingURL:          srv.URL + "/backup",
+		FreshnessPingURL: srv.URL + "/freshness",
+		Timeout:          time.Second,
+	})
+
+	ev := Event{Event: "freshness", Status: "failed", Host: "node-1", Error: "stale", Time: time.Now()}
+	if err := n.Send(context.Background(), ev); err != nil {
+		t.Fatal(err)
+	}
+	got := requests()
+	if len(got) != 1 || got[0].path != "/freshness/fail" {
+		t.Fatalf("requests = %+v", got)
+	}
+}

@@ -24,8 +24,10 @@ import (
 
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/doctor"
+	"github.com/mnnoee/jealous-vault/internal/freshness"
 	"github.com/mnnoee/jealous-vault/internal/hooks"
 	"github.com/mnnoee/jealous-vault/internal/lock"
+	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
@@ -97,6 +99,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdCheck(ctx, args[1:])
 	case "doctor":
 		return cmdDoctor(ctx, args[1:])
+	case "freshness":
+		return cmdFreshness(ctx, args[1:])
 	case "status":
 		return cmdStatus(args[1:])
 	case "version":
@@ -128,6 +132,7 @@ Commands:
   test-restore  restore into a separate directory
   check         verify repository integrity
   doctor        check restic, config, repository, paths and timers
+  freshness     check the backup age and the backup timer
   status        show the last run and whether the backup is fresh
   version       print version information
 
@@ -937,6 +942,82 @@ func cmdDoctor(ctx context.Context, args []string) error {
 
 	if report.Failed {
 		return &exitError{code: 1, err: errors.New("doctor found problems")}
+	}
+	return nil
+}
+
+func cmdFreshness(ctx context.Context, args []string) error {
+	fs := newFlagSet("freshness")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	maxAge := fs.Duration("max-age", 0, "override freshness.max_age")
+	asJSON := fs.Bool("json", false, "print the result as JSON")
+	noNotify := fs.Bool("no-notify", false, "do not send alerts or pings")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if *maxAge <= 0 {
+		*maxAge = cfg.FreshnessMaxAge
+	}
+
+	st, err := state.Store{Path: cfg.StateFile}.Load()
+	if err != nil {
+		return err
+	}
+	result := freshness.Check(ctx, st, freshness.Options{
+		MaxAge:             *maxAge,
+		RespectBackupTimer: cfg.Freshness.RespectBackupTimer,
+	})
+
+	status := "success"
+	if result.Kind != freshness.KindOK {
+		status = "failed"
+	}
+	if !*noNotify {
+		notifier := notify.New(notify.Options{
+			Webhooks:         cfg.Notify.Webhooks,
+			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
+			TelegramToken:    cfg.Notify.TelegramToken,
+			TelegramChatID:   cfg.Notify.TelegramChatID,
+			NotifyOnSuccess:  cfg.Notify.NotifyOnSuccess,
+			Timeout:          cfg.NotifyTimeout,
+			Logger:           newLogger(*verbose),
+		})
+		ev := notify.Event{
+			Event:  "freshness",
+			Status: status,
+			Host:   cfg.Host,
+			Time:   time.Now(),
+		}
+		if status == "failed" {
+			ev.Error = result.Message
+		}
+		if err := notifier.Send(ctx, ev); err != nil {
+			fmt.Fprintf(os.Stderr, "jealous-vault: cannot send freshness alert: %v\n", err)
+		}
+	}
+
+	if *asJSON {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(result); err != nil {
+			return err
+		}
+	} else {
+		fmt.Printf("freshness: %s\n", result.Kind)
+		fmt.Println(result.Message)
+	}
+
+	if result.Kind != freshness.KindOK {
+		return &exitError{code: 1, err: fmt.Errorf("freshness check: %s", result.Kind)}
 	}
 	return nil
 }

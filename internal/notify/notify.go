@@ -41,26 +41,28 @@ type Event struct {
 
 // Options configures a Notifier.
 type Options struct {
-	Webhooks        []string
-	PingURL         string
-	TelegramToken   string
-	TelegramChatID  string
-	NotifyOnSuccess bool
-	Timeout         time.Duration
-	Client          *http.Client
-	Logger          *slog.Logger
+	Webhooks         []string
+	PingURL          string
+	FreshnessPingURL string
+	TelegramToken    string
+	TelegramChatID   string
+	NotifyOnSuccess  bool
+	Timeout          time.Duration
+	Client           *http.Client
+	Logger           *slog.Logger
 }
 
 // Notifier sends events to every configured channel.
 type Notifier struct {
-	webhooks        []string
-	pingURL         string
-	telegramToken   string
-	telegramChatID  string
-	notifyOnSuccess bool
-	timeout         time.Duration
-	client          *http.Client
-	log             *slog.Logger
+	webhooks         []string
+	pingURL          string
+	freshnessPingURL string
+	telegramToken    string
+	telegramChatID   string
+	notifyOnSuccess  bool
+	timeout          time.Duration
+	client           *http.Client
+	log              *slog.Logger
 }
 
 // New returns a Notifier. A nil logger discards messages.
@@ -78,14 +80,15 @@ func New(o Options) *Notifier {
 		log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	return &Notifier{
-		webhooks:        append([]string(nil), o.Webhooks...),
-		pingURL:         o.PingURL,
-		telegramToken:   o.TelegramToken,
-		telegramChatID:  o.TelegramChatID,
-		notifyOnSuccess: o.NotifyOnSuccess,
-		timeout:         timeout,
-		client:          client,
-		log:             log,
+		webhooks:         append([]string(nil), o.Webhooks...),
+		pingURL:          o.PingURL,
+		freshnessPingURL: o.FreshnessPingURL,
+		telegramToken:    o.TelegramToken,
+		telegramChatID:   o.TelegramChatID,
+		notifyOnSuccess:  o.NotifyOnSuccess,
+		timeout:          timeout,
+		client:           client,
+		log:              log,
 	}
 }
 
@@ -110,8 +113,8 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 		}
 	}
 
-	if n.pingURL != "" && ev.Event == eventBackup {
-		if err := n.ping(ctx, ev); err != nil {
+	if endpoint := n.pingEndpoint(ev.Event); endpoint != "" {
+		if err := n.ping(ctx, endpoint, ev); err != nil {
 			errs = append(errs, fmt.Errorf("ping: %w", err))
 		}
 	}
@@ -171,8 +174,19 @@ func (n *Notifier) telegram(ctx context.Context, ev Event) error {
 	})
 }
 
-func (n *Notifier) ping(ctx context.Context, ev Event) error {
-	endpoint := n.pingURL
+func (n *Notifier) pingEndpoint(event string) string {
+	switch event {
+	case eventBackup:
+		return n.pingURL
+	case "freshness":
+		return n.freshnessPingURL
+	default:
+		return ""
+	}
+}
+
+func (n *Notifier) ping(ctx context.Context, base string, ev Event) error {
+	endpoint := base
 	if ev.Status != statusSuccess {
 		if u, err := url.Parse(endpoint); err == nil {
 			u.Path = strings.TrimRight(u.Path, "/") + "/fail"

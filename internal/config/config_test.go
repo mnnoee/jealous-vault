@@ -63,6 +63,12 @@ paths = ["/etc"]
 	if cfg.RandomizedDelay != time.Hour {
 		t.Errorf("randomized delay = %s", cfg.RandomizedDelay)
 	}
+	if cfg.FreshnessMaxAge != 25*time.Hour {
+		t.Errorf("freshness max age = %s", cfg.FreshnessMaxAge)
+	}
+	if !cfg.Freshness.RespectBackupTimer {
+		t.Error("freshness must respect the backup timer by default")
+	}
 }
 
 func TestLoadUnknownKey(t *testing.T) {
@@ -158,6 +164,7 @@ func TestValidate(t *testing.T) {
 			cfg.CheckTimeout = time.Hour
 			cfg.NotifyTimeout = time.Second
 			cfg.RandomizedDelay = 15 * time.Minute
+			cfg.FreshnessMaxAge = 25 * time.Hour
 			tc.mod(cfg)
 
 			err := cfg.Validate()
