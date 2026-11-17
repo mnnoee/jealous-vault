@@ -136,7 +136,7 @@ func (n *Notifier) Send(ctx context.Context, ev Event) error {
 	if notify {
 		for _, hook := range n.webhooks {
 			if err := n.postJSON(ctx, hook, ev); err != nil {
-				channelErrs = append(channelErrs, fmt.Errorf("webhook %s: %w", hook, err))
+				channelErrs = append(channelErrs, fmt.Errorf("webhook %s: %w", redactEndpoint(hook), err))
 			} else {
 				sent = true
 			}
@@ -208,14 +208,14 @@ func (n *Notifier) postJSON(ctx context.Context, endpoint string, ev Event) erro
 
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
-			return err
+			return errors.New("invalid webhook endpoint")
 		}
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("User-Agent", "jealous-vault")
 
 		resp, err := n.client.Do(req)
 		if err != nil {
-			return err
+			return redactHTTPError(err)
 		}
 		defer resp.Body.Close()
 		return responseError(resp)
@@ -241,14 +241,14 @@ func (n *Notifier) telegram(ctx context.Context, ev Event) error {
 			req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint,
 				strings.NewReader(form.Encode()))
 			if err != nil {
-				return err
+				return errors.New("invalid telegram endpoint")
 			}
 			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			req.Header.Set("User-Agent", "jealous-vault")
 
 			resp, err := n.client.Do(req)
 			if err != nil {
-				return err
+				return redactHTTPError(err)
 			}
 			defer resp.Body.Close()
 			return responseError(resp)
@@ -287,13 +287,13 @@ func (n *Notifier) ping(ctx context.Context, base string, ev Event) error {
 
 		req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil)
 		if err != nil {
-			return err
+			return errors.New("invalid ping endpoint")
 		}
 		req.Header.Set("User-Agent", "jealous-vault")
 
 		resp, err := n.client.Do(req)
 		if err != nil {
-			return err
+			return redactHTTPError(err)
 		}
 		defer resp.Body.Close()
 		return responseError(resp)
