@@ -56,13 +56,58 @@ func ParseRepositoryURL(raw string) (Target, error) {
 }
 
 func validate(t Target) (Target, error) {
-	if t.Host == "" {
-		return Target{}, fmt.Errorf("sftp url has no host")
+	if err := validateHost(t.Host); err != nil {
+		return Target{}, err
 	}
-	if strings.ContainsAny(t.Host, " \t\n") {
-		return Target{}, fmt.Errorf("sftp host %q contains whitespace", t.Host)
+	if err := validateUser(t.User); err != nil {
+		return Target{}, err
 	}
 	return t, nil
+}
+
+// validateHost keeps the host safe for both ssh arguments and the generated
+// ssh_config. ssh reads newlines as new directives and a leading dash as an
+// option, so neither may reach the command line.
+func validateHost(host string) error {
+	if host == "" {
+		return fmt.Errorf("sftp url has no host")
+	}
+	if host == "." || host == ".." {
+		return fmt.Errorf("sftp host %q is not valid", host)
+	}
+	if strings.HasPrefix(host, "-") {
+		return fmt.Errorf("sftp host %q must not start with a dash", host)
+	}
+	for _, r := range host {
+		if isAlphaNum(r) || r == '.' || r == '-' || r == '_' || r == ':' {
+			continue
+		}
+		return fmt.Errorf("sftp host %q contains invalid character %q", host, r)
+	}
+	return nil
+}
+
+// validateUser applies the same rule to the account name. It is written to the
+// generated ssh_config without quoting, so control characters and ssh_config
+// metacharacters are rejected.
+func validateUser(user string) error {
+	if user == "" {
+		return nil
+	}
+	if strings.HasPrefix(user, "-") {
+		return fmt.Errorf("sftp user %q must not start with a dash", user)
+	}
+	for _, r := range user {
+		if isAlphaNum(r) || r == '.' || r == '-' || r == '_' || r == '+' || r == '@' {
+			continue
+		}
+		return fmt.Errorf("sftp user %q contains invalid character %q", user, r)
+	}
+	return nil
+}
+
+func isAlphaNum(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')
 }
 
 // EnsureConfig writes an isolated ssh_config when sftp_key_file is set.

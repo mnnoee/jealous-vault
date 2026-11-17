@@ -21,6 +21,8 @@ func TestParseRepositoryURL(t *testing.T) {
 		{"sftp:backup@10.0.16.152:/srv/backup", "backup", "10.0.16.152"},
 		{"sftp:10.0.16.152:/srv/backup", "", "10.0.16.152"},
 		{"sftp://backup@backup.example.com/srv/backup", "backup", "backup.example.com"},
+		{"sftp:backup+sync@host:/srv/backup", "backup+sync", "host"},
+		{"sftp://backup@[2001:db8::1]/srv/backup", "backup", "2001:db8::1"},
 	}
 	for _, tc := range cases {
 		target, err := ParseRepositoryURL(tc.raw)
@@ -33,7 +35,18 @@ func TestParseRepositoryURL(t *testing.T) {
 		}
 	}
 
-	for _, raw := range []string{"local:/srv/repo", "sftp:host", "sftp:host:"} {
+	for _, raw := range []string{
+		"local:/srv/repo",
+		"sftp:host",
+		"sftp:host:",
+		"sftp://alice%0AProxyCommand%20id@host/path",
+		"sftp://alice%0D%0AProxyCommand%20id@host/path",
+		"sftp://-oProxyCommand=id@host/path",
+		"sftp:backup@-host:/srv/backup",
+		"sftp:backup user@host:/srv/backup",
+		"sftp:backup@ho%20st:/srv/backup",
+		"sftp:backup@host\nname:/srv/backup",
+	} {
 		if _, err := ParseRepositoryURL(raw); err == nil {
 			t.Errorf("ParseRepositoryURL(%q) did not fail", raw)
 		}
