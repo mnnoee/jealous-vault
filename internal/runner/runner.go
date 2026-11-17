@@ -79,13 +79,22 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 		r.log.Info("backup started", "paths", r.cfg.Backup.Paths, "repository", r.cfg.RedactedRepository())
 
 		backupCtx, cancel := context.WithTimeout(ctx, r.cfg.BackupTimeout)
-		summary, err := r.restic.Backup(backupCtx, restic.BackupOptions{
+		opts := restic.BackupOptions{
 			Host:          r.cfg.Host,
 			Paths:         r.cfg.Backup.Paths,
 			Excludes:      r.cfg.Backup.Excludes,
 			Tags:          r.cfg.Backup.Tags,
 			OneFileSystem: r.cfg.Backup.OneFileSystem,
-		})
+		}
+		summary, err := r.restic.Backup(backupCtx, opts)
+		if err != nil && restic.IsLockError(err) {
+			r.log.Warn("repository is locked, unlocking stale locks and retrying once")
+			if unlockErr := r.restic.Unlock(backupCtx); unlockErr != nil {
+				r.log.Error("cannot unlock repository", "error", unlockErr)
+			} else {
+				summary, err = r.restic.Backup(backupCtx, opts)
+			}
+		}
 		cancel()
 
 		if err != nil {

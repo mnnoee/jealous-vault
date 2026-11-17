@@ -180,3 +180,49 @@ func TestCheckRecordsSuccess(t *testing.T) {
 		t.Errorf("check must not touch the last backup run: %+v", st.LastRun)
 	}
 }
+
+func TestBackupRetriesAfterLock(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.log")
+	marker := filepath.Join(dir, "locked")
+	script := writeScript(t, `printf '%s\n' "$*" >> `+argsFile+`
+case "$1" in
+unlock)
+  exit 0
+  ;;
+backup)
+  if [ ! -f `+marker+` ]; then
+    touch `+marker+`
+    echo "repository is already locked by PID 123" >&2
+    exit 1
+  fi
+  echo '{"message_type":"summary","snapshot_id":"snap-retry"}'
+  ;;
+esac
+`)
+
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = script
+	cfg.Retention = config.Retention{}
+
+	r := New(cfg, discardLogger(), io.Discard)
+	run, err := r.Backup(context.Background())
+	if err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+	if run.Status != state.StatusSuccess || run.SnapshotID != "snap-retry" {
+		t.Fatalf("run = %+v", run)
+	}
+
+	args, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(args)
+	if !strings.Contains(text, "unlock") {
+		t.Errorf("unlock was not called: %q", text)
+	}
+	if got := strings.Count(text, "backup --json"); got != 2 {
+		t.Errorf("backup calls = %d, want 2: %q", got, text)
+	}
+}
