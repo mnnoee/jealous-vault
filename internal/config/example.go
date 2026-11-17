@@ -150,8 +150,12 @@ func WriteExample(path string, o InitOptions, force bool) error {
 			return err
 		}
 	}
+	body := RenderExample(o)
+	if _, err := Parse(path, []byte(body)); err != nil {
+		return fmt.Errorf("generated config is invalid: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(RenderExample(o)), 0o600)
+	return os.WriteFile(path, []byte(body), 0o600)
 }

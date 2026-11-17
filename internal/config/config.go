@@ -132,12 +132,18 @@ func Default() *Config {
 
 // Load reads path, applies defaults and validates the result.
 func Load(path string) (*Config, error) {
-	cfg := Default()
-
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	return Parse(path, data)
+}
+
+// Parse applies defaults to data and validates the result. It does not touch
+// the filesystem, so it can validate generated configuration before writing.
+func Parse(path string, data []byte) (*Config, error) {
+	cfg := Default()
+
 	md, err := toml.Decode(string(data), cfg)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", path, err)
@@ -227,6 +233,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Repository.PasswordFile == "" && c.Repository.Env["RESTIC_PASSWORD"] == "" {
 		return errors.New("repository.password_file or RESTIC_PASSWORD in repository.env is required")
+	}
+	for _, item := range []struct {
+		key  string
+		path string
+	}{
+		{"state_file", c.StateFile},
+		{"repository.password_file", c.Repository.PasswordFile},
+		{"repository.env_file", c.Repository.EnvFile},
+	} {
+		if item.path != "" && !filepath.IsAbs(item.path) {
+			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
+		}
 	}
 	if len(c.Backup.Paths) == 0 {
 		return errors.New("backup.paths is empty")

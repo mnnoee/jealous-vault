@@ -199,7 +199,11 @@ func cmdInit(args []string) error {
 // exist yet. It returns the password path.
 func writeInitialConfig(path string, opts config.InitOptions, force bool) (string, error) {
 	if opts.PasswordFile == "" {
-		opts.PasswordFile = filepath.Join(filepath.Dir(path), "restic.pass")
+		passwordPath, err := filepath.Abs(filepath.Join(filepath.Dir(path), "restic.pass"))
+		if err != nil {
+			return "", err
+		}
+		opts.PasswordFile = passwordPath
 	}
 	if opts.StateFile == "" {
 		opts.StateFile = config.DefaultStateFile

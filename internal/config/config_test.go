@@ -110,6 +110,21 @@ func TestValidate(t *testing.T) {
 			mod:  func(c *Config) { c.Notify.TelegramToken = "token" },
 			want: "telegram",
 		},
+		{
+			name: "relative state file",
+			mod:  func(c *Config) { c.StateFile = "state.json" },
+			want: "state_file",
+		},
+		{
+			name: "relative password file",
+			mod:  func(c *Config) { c.Repository.PasswordFile = "restic.pass" },
+			want: "password_file",
+		},
+		{
+			name: "relative env file",
+			mod:  func(c *Config) { c.Repository.EnvFile = "restic.env" },
+			want: "env_file",
+		},
 	}
 
 	for _, tc := range cases {
@@ -283,5 +298,25 @@ func TestRedactURL(t *testing.T) {
 		if got := RedactURL(in); got != want {
 			t.Errorf("RedactURL(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestWriteExampleRejectsRelativePaths(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	err := WriteExample(path, InitOptions{
+		Host:         "node-1",
+		PasswordFile: filepath.Join(dir, "restic.pass"),
+		StateFile:    "state.json",
+	}, false)
+	if err == nil {
+		t.Fatal("expected an error for a relative state file")
+	}
+	if !strings.Contains(err.Error(), "state_file") {
+		t.Fatalf("error does not name the key: %v", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatal("invalid config was written to disk")
 	}
 }
