@@ -51,6 +51,9 @@ paths = ["/etc"]
 	if cfg.Retention.KeepDaily != 7 || !cfg.Retention.Prune {
 		t.Errorf("retention defaults not applied: %+v", cfg.Retention)
 	}
+	if cfg.Backup.Profile != "host" {
+		t.Errorf("profile = %q, want host", cfg.Backup.Profile)
+	}
 	if cfg.Schedule.OnCalendar != "*-*-* 03:30:00" {
 		t.Errorf("schedule = %q", cfg.Schedule.OnCalendar)
 	}
@@ -109,6 +112,11 @@ func TestValidate(t *testing.T) {
 			name: "telegram token without chat",
 			mod:  func(c *Config) { c.Notify.TelegramToken = "token" },
 			want: "telegram",
+		},
+		{
+			name: "unknown profile",
+			mod:  func(c *Config) { c.Backup.Profile = "everything" },
+			want: "backup.profile",
 		},
 		{
 			name: "relative state file",
@@ -227,6 +235,12 @@ func TestRenderExampleLoads(t *testing.T) {
 	if !cfg.Backup.OneFileSystem {
 		t.Error("generated config must keep one_file_system enabled")
 	}
+	if cfg.Backup.Profile != "host" {
+		t.Errorf("profile = %q, want host", cfg.Backup.Profile)
+	}
+	if len(cfg.Backup.Excludes) == 0 {
+		t.Error("generated host config has no default excludes")
+	}
 
 	if err := WriteExample(path, InitOptions{}, false); err == nil {
 		t.Fatal("WriteExample overwrote an existing file")
@@ -276,14 +290,31 @@ func TestRetentionArgs(t *testing.T) {
 	}
 }
 
-func TestDefaultPaths(t *testing.T) {
-	pve := defaultPaths(true)
-	if len(pve) != 3 || pve[0] != "/etc/pve" {
-		t.Fatalf("proxmox paths = %v", pve)
+func TestPresetFor(t *testing.T) {
+	pve := PresetFor("host", true)
+	if len(pve.Paths) != 2 || pve.Paths[1] != "/etc/pve" {
+		t.Fatalf("proxmox paths = %v", pve.Paths)
 	}
-	plain := defaultPaths(false)
-	if len(plain) != 2 || plain[0] != "/etc" {
-		t.Fatalf("plain linux paths = %v", plain)
+	if len(pve.Excludes) == 0 {
+		t.Fatal("proxmox host profile has no default excludes")
+	}
+
+	plain := PresetFor("host", false)
+	if len(plain.Paths) != 2 || plain.Paths[0] != "/etc" {
+		t.Fatalf("plain linux paths = %v", plain.Paths)
+	}
+
+	dumps := PresetFor("vm-dumps", true)
+	if len(dumps.Paths) != 1 || dumps.Paths[0] != "/var/lib/vz/dump" {
+		t.Fatalf("vm-dumps paths = %v", dumps.Paths)
+	}
+	if len(dumps.Excludes) != 0 {
+		t.Fatalf("vm-dumps excludes = %v", dumps.Excludes)
+	}
+
+	custom := PresetFor("custom", true)
+	if len(custom.Paths) != 0 || len(custom.Excludes) != 0 {
+		t.Fatalf("custom preset = %+v", custom)
 	}
 }
 
@@ -318,5 +349,52 @@ func TestWriteExampleRejectsRelativePaths(t *testing.T) {
 	}
 	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
 		t.Fatal("invalid config was written to disk")
+	}
+}
+
+func TestRenderExampleVMProfile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	err := WriteExample(path, InitOptions{
+		Host:          "pve",
+		RepositoryURL: "local:/srv/repo",
+		PasswordFile:  filepath.Join(dir, "restic.pass"),
+		Profile:       "vm-dumps",
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Backup.Profile != "vm-dumps" {
+		t.Errorf("profile = %q", cfg.Backup.Profile)
+	}
+	if len(cfg.Backup.Paths) != 1 || cfg.Backup.Paths[0] != "/var/lib/vz/dump" {
+		t.Errorf("paths = %v", cfg.Backup.Paths)
+	}
+	if len(cfg.Backup.Excludes) != 0 {
+		t.Errorf("excludes = %v", cfg.Backup.Excludes)
+	}
+}
+
+func TestRenderExampleCustomWithoutPathsFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+
+	err := WriteExample(path, InitOptions{
+		Host:          "node-1",
+		RepositoryURL: "local:/srv/repo",
+		PasswordFile:  filepath.Join(dir, "restic.pass"),
+		Profile:       "custom",
+	}, false)
+	if err == nil {
+		t.Fatal("expected an error for a custom profile without paths")
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatal("invalid config was written")
 	}
 }

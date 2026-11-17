@@ -60,6 +60,7 @@ type Repo struct {
 
 // Backup describes what to copy and how.
 type Backup struct {
+	Profile       string   `toml:"profile"`
 	Paths         []string `toml:"paths"`
 	Excludes      []string `toml:"excludes"`
 	Tags          []string `toml:"tags"`
@@ -124,7 +125,7 @@ func Default() *Config {
 			OnCalendar:      "*-*-* 03:30:00",
 			RandomizedDelay: "1h",
 		},
-		Backup: Backup{Timeout: "6h"},
+		Backup: Backup{Profile: "host", Timeout: "6h"},
 		Check:  Check{Timeout: "2h"},
 		Notify: Notify{Timeout: "10s"},
 	}
@@ -183,6 +184,9 @@ func (c *Config) finish() error {
 	}
 	if c.Schedule.RandomizedDelay == "" {
 		c.Schedule.RandomizedDelay = "1h"
+	}
+	if c.Backup.Profile == "" {
+		c.Backup.Profile = "host"
 	}
 	if c.Backup.Timeout == "" {
 		c.Backup.Timeout = "6h"
@@ -245,6 +249,11 @@ func (c *Config) Validate() error {
 		if item.path != "" && !filepath.IsAbs(item.path) {
 			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
 		}
+	}
+	switch c.Backup.Profile {
+	case "host", "vm-dumps", "custom":
+	default:
+		return fmt.Errorf("backup.profile %q must be host, vm-dumps or custom", c.Backup.Profile)
 	}
 	if len(c.Backup.Paths) == 0 {
 		return errors.New("backup.paths is empty")

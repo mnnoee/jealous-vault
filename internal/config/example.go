@@ -17,7 +17,48 @@ type InitOptions struct {
 	StateFile     string
 	RepositoryURL string
 	PasswordFile  string
+	Profile       string
 	Paths         []string
+	Excludes      []string
+}
+
+// Preset is a set of default paths and excludes for a backup profile.
+type Preset struct {
+	Paths    []string
+	Excludes []string
+}
+
+// PresetFor returns the defaults for host, vm-dumps or custom.
+func PresetFor(profile string, proxmox bool) Preset {
+	switch profile {
+	case "vm-dumps":
+		return Preset{Paths: []string{"/var/lib/vz/dump"}}
+	case "custom":
+		return Preset{}
+	default:
+		paths := []string{"/etc", "/var/www"}
+		if proxmox {
+			paths = []string{"/etc", "/etc/pve"}
+		}
+		excludes := []string{
+			"/tmp",
+			"/var/tmp",
+			"/var/cache",
+			"/proc",
+			"/sys",
+			"/dev",
+			"/run",
+			"/mnt",
+			"/media",
+			"/lost+found",
+			"**/*.tmp",
+			"**/node_modules",
+		}
+		if proxmox {
+			excludes = append(excludes, "/var/lib/vz/dump")
+		}
+		return Preset{Paths: paths, Excludes: excludes}
+	}
 }
 
 // RenderExample builds a commented configuration file. Secrets are never
@@ -39,9 +80,18 @@ func RenderExample(o InitOptions) string {
 	if passwordFile == "" {
 		passwordFile = "/etc/jealous-vault/restic.pass"
 	}
+	profile := o.Profile
+	if profile == "" {
+		profile = "host"
+	}
+	preset := PresetFor(profile, isProxmox())
 	paths := o.Paths
 	if len(paths) == 0 {
-		paths = DefaultPaths()
+		paths = preset.Paths
+	}
+	excludes := o.Excludes
+	if len(excludes) == 0 {
+		excludes = preset.Excludes
 	}
 
 	var b strings.Builder
@@ -61,8 +111,12 @@ password_file = %s
 # env_file = "/etc/jealous-vault/restic.env"
 
 [backup]
+# host: OS configuration and data, without VM dump archives.
+# vm-dumps: only Proxmox dump archives.
+# custom: no defaults, everything comes from this file.
+profile = %s
 paths = %s
-excludes = []
+excludes = %s
 tags = []
 # Hooks run through /bin/sh before and after the backup. A failing pre hook
 # aborts the run, a failing post hook is reported as a warning.
@@ -105,24 +159,14 @@ telegram_token = ""
 telegram_chat_id = ""
 notify_on_success = false
 timeout = "10s"
-`, quote(host), quote(stateFile), quote(repoURL), quote(passwordFile), quoteSlice(paths))
+`, quote(host), quote(stateFile), quote(repoURL), quote(passwordFile), quote(profile), quoteSlice(paths), quoteSlice(excludes))
 
 	return b.String()
 }
 
-// DefaultPaths returns backup paths for the local host. Proxmox keeps its
-// configuration on pmxcfs at /etc/pve, which is a separate mount and has to be
-// named explicitly when one_file_system is enabled.
-func DefaultPaths() []string {
+func isProxmox() bool {
 	_, err := os.Stat("/etc/pve")
-	return defaultPaths(err == nil)
-}
-
-func defaultPaths(proxmox bool) []string {
-	if proxmox {
-		return []string{"/etc/pve", "/etc/network", "/var/lib/vz/dump"}
-	}
-	return []string{"/etc", "/var/www"}
+	return err == nil
 }
 
 func quote(s string) string {

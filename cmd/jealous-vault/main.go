@@ -173,6 +173,8 @@ func cmdInit(ctx context.Context, args []string) error {
 	host := stringFlag(fs, "host", "", "host name recorded in snapshots, defaults to the system hostname")
 	repoURL := stringFlag(fs, "repo", "", "restic repository URL")
 	paths := stringFlag(fs, "paths", "", "comma separated absolute paths to back up")
+	excludes := stringFlag(fs, "excludes", "", "comma separated exclude patterns")
+	profile := stringFlag(fs, "profile", "host", "backup profile: host, vm-dumps or custom")
 	passwordFile := stringFlag(fs, "password-file", "", "file that will hold the repository password")
 	stateFile := stringFlag(fs, "state-file", config.DefaultStateFile, "file that will hold the last run state")
 	force := fs.Bool("force", false, "overwrite an existing configuration")
@@ -187,13 +189,20 @@ func cmdInit(ctx context.Context, args []string) error {
 	if *repoURL == "" && !*noRepoInit {
 		return errors.New("pass --repo to initialize the repository, or --no-repo-init to only write the config")
 	}
+	switch *profile {
+	case "host", "vm-dumps", "custom":
+	default:
+		return fmt.Errorf("unknown profile %q, use host, vm-dumps or custom", *profile)
+	}
 
 	pwPath, err := writeInitialConfig(*configPath, config.InitOptions{
 		Host:          *host,
 		RepositoryURL: *repoURL,
 		PasswordFile:  *passwordFile,
 		StateFile:     *stateFile,
+		Profile:       *profile,
 		Paths:         splitComma(*paths),
+		Excludes:      splitComma(*excludes),
 	}, *force)
 	if err != nil {
 		return err
