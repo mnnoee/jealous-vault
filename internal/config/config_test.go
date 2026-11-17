@@ -209,6 +209,9 @@ func TestRenderExampleLoads(t *testing.T) {
 	if len(cfg.Backup.Paths) != 2 {
 		t.Errorf("paths = %v", cfg.Backup.Paths)
 	}
+	if !cfg.Backup.OneFileSystem {
+		t.Error("generated config must keep one_file_system enabled")
+	}
 
 	if err := WriteExample(path, InitOptions{}, false); err == nil {
 		t.Fatal("WriteExample overwrote an existing file")
@@ -255,6 +258,17 @@ func TestRetentionArgs(t *testing.T) {
 	cfg.Retention = Retention{}
 	if cfg.HasRetention() {
 		t.Fatal("empty retention must not produce forget flags")
+	}
+}
+
+func TestDefaultPaths(t *testing.T) {
+	pve := defaultPaths(true)
+	if len(pve) != 3 || pve[0] != "/etc/pve" {
+		t.Fatalf("proxmox paths = %v", pve)
+	}
+	plain := defaultPaths(false)
+	if len(plain) != 2 || plain[0] != "/etc" {
+		t.Fatalf("plain linux paths = %v", plain)
 	}
 }
 

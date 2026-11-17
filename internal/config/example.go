@@ -41,7 +41,7 @@ func RenderExample(o InitOptions) string {
 	}
 	paths := o.Paths
 	if len(paths) == 0 {
-		paths = []string{"/etc", "/var/www"}
+		paths = DefaultPaths()
 	}
 
 	var b strings.Builder
@@ -68,6 +68,9 @@ tags = []
 # aborts the run, a failing post hook is reported as a warning.
 pre_hooks = []
 post_hooks = []
+# Keep true to avoid crossing into /proc, /sys and network mounts.
+# On Proxmox, /etc/pve is a separate FUSE mount (pmxcfs), so it must be
+# listed in paths explicitly. Otherwise its contents are skipped.
 one_file_system = true
 timeout = "6h"
 
@@ -105,6 +108,21 @@ timeout = "10s"
 `, quote(host), quote(stateFile), quote(repoURL), quote(passwordFile), quoteSlice(paths))
 
 	return b.String()
+}
+
+// DefaultPaths returns backup paths for the local host. Proxmox keeps its
+// configuration on pmxcfs at /etc/pve, which is a separate mount and has to be
+// named explicitly when one_file_system is enabled.
+func DefaultPaths() []string {
+	_, err := os.Stat("/etc/pve")
+	return defaultPaths(err == nil)
+}
+
+func defaultPaths(proxmox bool) []string {
+	if proxmox {
+		return []string{"/etc/pve", "/etc/network", "/var/lib/vz/dump"}
+	}
+	return []string{"/etc", "/var/www"}
 }
 
 func quote(s string) string {
