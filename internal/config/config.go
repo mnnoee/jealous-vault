@@ -1,0 +1,380 @@
+// SPDX-FileCopyrightText: 2026 mnnoee
+// SPDX-License-Identifier: Apache-2.0
+
+// Package config loads and validates the JealousVault agent configuration.
+package config
+
+import (
+	"crypto/rand"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/BurntSushi/toml"
+)
+
+const (
+	// DefaultPath is where the agent reads its configuration on a normal install.
+	DefaultPath = "/etc/jealous-vault/config.toml"
+	// DefaultStateFile stores the result of the last backup and check.
+	DefaultStateFile = "/var/lib/jealous-vault/state.json"
+	// DefaultResticBinary is resolved through PATH.
+	DefaultResticBinary = "restic"
+)
+
+// Config is the on-disk configuration. Durations stay strings here so that the
+// TOML file reads naturally, and are parsed into time.Duration fields.
+type Config struct {
+	Host         string    `toml:"host"`
+	StateFile    string    `toml:"state_file"`
+	ResticBinary string    `toml:"restic_binary"`
+	Repository   Repo      `toml:"repository"`
+	Backup       Backup    `toml:"backup"`
+	Retention    Retention `toml:"retention"`
+	Schedule     Schedule  `toml:"schedule"`
+	Check        Check     `toml:"check"`
+	Restore      Restore   `toml:"restore"`
+	Notify       Notify    `toml:"notify"`
+
+	Path string `toml:"-"`
+
+	BackupTimeout   time.Duration `toml:"-"`
+	CheckTimeout    time.Duration `toml:"-"`
+	NotifyTimeout   time.Duration `toml:"-"`
+	RandomizedDelay time.Duration `toml:"-"`
+}
+
+// Repo describes the restic repository and its credentials.
+type Repo struct {
+	URL          string            `toml:"url"`
+	PasswordFile string            `toml:"password_file"`
+	EnvFile      string            `toml:"env_file"`
+	Env          map[string]string `toml:"env"`
+}
+
+// Backup describes what to copy and how.
+type Backup struct {
+	Paths         []string `toml:"paths"`
+	Excludes      []string `toml:"excludes"`
+	Tags          []string `toml:"tags"`
+	PreHooks      []string `toml:"pre_hooks"`
+	PostHooks     []string `toml:"post_hooks"`
+	OneFileSystem bool     `toml:"one_file_system"`
+	Timeout       string   `toml:"timeout"`
+}
+
+// Retention is passed to restic forget.
+type Retention struct {
+	KeepLast    int  `toml:"keep_last"`
+	KeepDaily   int  `toml:"keep_daily"`
+	KeepWeekly  int  `toml:"keep_weekly"`
+	KeepMonthly int  `toml:"keep_monthly"`
+	Prune       bool `toml:"prune"`
+}
+
+// Schedule drives the generated systemd timer.
+type Schedule struct {
+	OnCalendar      string `toml:"on_calendar"`
+	RandomizedDelay string `toml:"randomized_delay"`
+}
+
+// Check controls the integrity check timer.
+type Check struct {
+	ReadDataSubset string `toml:"read_data_subset"`
+	Timeout        string `toml:"timeout"`
+}
+
+// Restore hooks run around a restore, for example to stop and start services.
+type Restore struct {
+	PreHooks  []string `toml:"pre_hooks"`
+	PostHooks []string `toml:"post_hooks"`
+}
+
+// Notify lists outbound notification channels.
+type Notify struct {
+	Webhooks        []string `toml:"webhooks"`
+	PingURL         string   `toml:"ping_url"`
+	TelegramToken   string   `toml:"telegram_token"`
+	TelegramChatID  string   `toml:"telegram_chat_id"`
+	NotifyOnSuccess bool     `toml:"notify_on_success"`
+	Timeout         string   `toml:"timeout"`
+}
+
+// Default returns a configuration with every non-secret value filled in.
+func Default() *Config {
+	host, _ := os.Hostname()
+	return &Config{
+		Host:         host,
+		StateFile:    DefaultStateFile,
+		ResticBinary: DefaultResticBinary,
+		Retention: Retention{
+			KeepLast:    3,
+			KeepDaily:   7,
+			KeepWeekly:  4,
+			KeepMonthly: 6,
+			Prune:       true,
+		},
+		Schedule: Schedule{
+			OnCalendar:      "*-*-* 03:30:00",
+			RandomizedDelay: "15m",
+		},
+		Backup: Backup{Timeout: "6h"},
+		Check:  Check{Timeout: "2h"},
+		Notify: Notify{Timeout: "10s"},
+	}
+}
+
+// Load reads path, applies defaults and validates the result.
+func Load(path string) (*Config, error) {
+	cfg := Default()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	md, err := toml.Decode(string(data), cfg)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if unknown := md.Undecoded(); len(unknown) > 0 {
+		keys := make([]string, 0, len(unknown))
+		for _, k := range unknown {
+			keys = append(keys, k.String())
+		}
+		sort.Strings(keys)
+		return nil, fmt.Errorf("unknown keys in %s: %s", path, strings.Join(keys, ", "))
+	}
+
+	cfg.Path = path
+	if err := cfg.finish(); err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return cfg, nil
+}
+
+func (c *Config) finish() error {
+	if c.Host == "" {
+		host, err := os.Hostname()
+		if err != nil {
+			return fmt.Errorf("host is empty and hostname is unavailable: %w", err)
+		}
+		c.Host = host
+	}
+	if c.StateFile == "" {
+		c.StateFile = DefaultStateFile
+	}
+	if c.ResticBinary == "" {
+		c.ResticBinary = DefaultResticBinary
+	}
+	if c.Schedule.OnCalendar == "" {
+		c.Schedule.OnCalendar = "*-*-* 03:30:00"
+	}
+	if c.Schedule.RandomizedDelay == "" {
+		c.Schedule.RandomizedDelay = "15m"
+	}
+	if c.Backup.Timeout == "" {
+		c.Backup.Timeout = "6h"
+	}
+	if c.Check.Timeout == "" {
+		c.Check.Timeout = "2h"
+	}
+	if c.Notify.Timeout == "" {
+		c.Notify.Timeout = "10s"
+	}
+
+	if c.Repository.EnvFile != "" {
+		env, err := LoadEnvFile(c.Repository.EnvFile)
+		if err != nil {
+			return fmt.Errorf("env file: %w", err)
+		}
+		if c.Repository.Env == nil {
+			c.Repository.Env = make(map[string]string, len(env))
+		}
+		for k, v := range env {
+			if _, ok := c.Repository.Env[k]; !ok {
+				c.Repository.Env[k] = v
+			}
+		}
+	}
+
+	var err error
+	if c.BackupTimeout, err = parseDuration("backup.timeout", c.Backup.Timeout); err != nil {
+		return err
+	}
+	if c.CheckTimeout, err = parseDuration("check.timeout", c.Check.Timeout); err != nil {
+		return err
+	}
+	if c.NotifyTimeout, err = parseDuration("notify.timeout", c.Notify.Timeout); err != nil {
+		return err
+	}
+	if c.RandomizedDelay, err = parseDuration("schedule.randomized_delay", c.Schedule.RandomizedDelay); err != nil {
+		return err
+	}
+
+	return c.Validate()
+}
+
+// Validate checks the parts that would otherwise fail at backup time.
+func (c *Config) Validate() error {
+	if c.Repository.URL == "" {
+		return errors.New("repository.url is required")
+	}
+	if c.Repository.PasswordFile == "" && c.Repository.Env["RESTIC_PASSWORD"] == "" {
+		return errors.New("repository.password_file or RESTIC_PASSWORD in repository.env is required")
+	}
+	if len(c.Backup.Paths) == 0 {
+		return errors.New("backup.paths is empty")
+	}
+	for _, p := range c.Backup.Paths {
+		if !filepath.IsAbs(p) {
+			return fmt.Errorf("backup path %q must be absolute", p)
+		}
+	}
+	for i, p := range c.Backup.Excludes {
+		if strings.TrimSpace(p) == "" {
+			return fmt.Errorf("backup.excludes[%d] is empty", i)
+		}
+	}
+	if c.Schedule.OnCalendar == "" {
+		return errors.New("schedule.on_calendar is empty")
+	}
+	if c.RandomizedDelay < 0 {
+		return errors.New("schedule.randomized_delay must not be negative")
+	}
+	if c.BackupTimeout <= 0 {
+		return errors.New("backup.timeout must be positive")
+	}
+	if c.CheckTimeout <= 0 {
+		return errors.New("check.timeout must be positive")
+	}
+	if (c.Notify.TelegramToken == "") != (c.Notify.TelegramChatID == "") {
+		return errors.New("notify.telegram_token and notify.telegram_chat_id must be set together")
+	}
+	for _, u := range c.Notify.Webhooks {
+		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+			return fmt.Errorf("notify.webhooks entry %q must be an http or https URL", u)
+		}
+	}
+	if c.Notify.PingURL != "" &&
+		!strings.HasPrefix(c.Notify.PingURL, "http://") &&
+		!strings.HasPrefix(c.Notify.PingURL, "https://") {
+		return fmt.Errorf("notify.ping_url %q must be an http or https URL", c.Notify.PingURL)
+	}
+	return nil
+}
+
+func parseDuration(key, value string) (time.Duration, error) {
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return d, nil
+}
+
+// RetentionArgs returns restic forget flags for the configured policy.
+// It returns nil when no retention rule is set.
+func (c *Config) RetentionArgs() []string {
+	var args []string
+	add := func(flag string, n int) {
+		if n > 0 {
+			args = append(args, flag, strconv.Itoa(n))
+		}
+	}
+	add("--keep-last", c.Retention.KeepLast)
+	add("--keep-daily", c.Retention.KeepDaily)
+	add("--keep-weekly", c.Retention.KeepWeekly)
+	add("--keep-monthly", c.Retention.KeepMonthly)
+	return args
+}
+
+// HasRetention reports whether forget should run after a backup.
+func (c *Config) HasRetention() bool {
+	return len(c.RetentionArgs()) > 0
+}
+
+// RedactedRepository returns the repository URL with userinfo removed, so it
+// can be logged and printed without leaking credentials.
+func (c *Config) RedactedRepository() string {
+	return RedactURL(c.Repository.URL)
+}
+
+// RedactURL hides the userinfo part of a URL that carries a scheme prefix,
+// for example s3:https://key:secret@host/bucket.
+func RedactURL(raw string) string {
+	i := strings.Index(raw, "://")
+	if i < 0 {
+		return raw
+	}
+	prefix, rest := raw[:i+3], raw[i+3:]
+	authority := rest
+	if slash := strings.IndexByte(rest, '/'); slash >= 0 {
+		authority = rest[:slash]
+	}
+	at := strings.LastIndexByte(authority, '@')
+	if at < 0 {
+		return raw
+	}
+	return prefix + "***@" + rest[at+1:]
+}
+
+// LoadEnvFile reads simple KEY=VALUE lines. Blank lines and lines starting
+// with # are ignored. A leading "export " is accepted.
+func LoadEnvFile(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	env := make(map[string]string)
+	for i, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			return nil, fmt.Errorf("line %d: expected KEY=VALUE", i+1)
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return nil, fmt.Errorf("line %d: empty key", i+1)
+		}
+		value = strings.TrimSpace(value)
+		if len(value) >= 2 {
+			if (value[0] == '"' && value[len(value)-1] == '"') ||
+				(value[0] == '\'' && value[len(value)-1] == '\'') {
+				value = value[1 : len(value)-1]
+			}
+		}
+		env[key] = value
+	}
+	return env, nil
+}
+
+// GeneratePassword writes a fresh random repository password to path.
+// It refuses to overwrite an existing file.
+func GeneratePassword(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return err
+	}
+	if _, err := f.WriteString(base64.RawURLEncoding.EncodeToString(buf) + "\n"); err != nil {
+		return err
+	}
+	return f.Sync()
+}
