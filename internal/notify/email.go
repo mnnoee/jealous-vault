@@ -121,6 +121,11 @@ func (s *emailSender) sendLocal(ctx context.Context, message []byte) error {
 		return err
 	}
 	defer client.Close()
+	if s.opts.Username != "" {
+		if err := client.Auth(smtp.PlainAuth("", s.opts.Username, s.opts.Password, "localhost")); err != nil {
+			return err
+		}
+	}
 	return s.sendWithClient(client, message)
 }
 
@@ -212,7 +217,18 @@ func (s *emailSender) Check(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("no sendmail and localhost:25 is not reachable: %w", err)
 		}
-		return conn.Close()
+		client, err := smtp.NewClient(conn, "localhost")
+		if err != nil {
+			conn.Close()
+			return err
+		}
+		defer client.Close()
+		if s.opts.Username != "" {
+			if err := client.Auth(smtp.PlainAuth("", s.opts.Username, s.opts.Password, "localhost")); err != nil {
+				return err
+			}
+		}
+		return client.Quit()
 	}
 	client, err := s.connect(ctx)
 	if err != nil {
