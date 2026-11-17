@@ -514,6 +514,46 @@ func (c *Client) Unlock(ctx context.Context) error {
 	return nil
 }
 
+// AddKey adds a new repository key that is protected by newPasswordFile. The
+// current password still opens the repository until the old key is removed.
+func (c *Client) AddKey(ctx context.Context, newPasswordFile string) error {
+	cmd := c.command(ctx, "key", "add", "--new-password-file", newPasswordFile)
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return commandError("key add", err, stderr.String())
+	}
+	return nil
+}
+
+// Keys prints the repository keys.
+func (c *Client) Keys(ctx context.Context) error {
+	cmd := c.command(ctx, "key", "list")
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return commandError("key list", err, stderr.String())
+	}
+	return nil
+}
+
+// RemoveKey deletes one repository key by ID.
+func (c *Client) RemoveKey(ctx context.Context, id string) error {
+	cmd := c.command(ctx, "key", "remove", id)
+	cmd.Stdout = c.out
+	var stderr tailBuffer
+	stderr.max = 64 << 10
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return commandError("key remove", err, stderr.String())
+	}
+	return nil
+}
+
 // Stats describes repository usage.
 type Stats struct {
 	TotalSize      int64 `json:"total_size"`

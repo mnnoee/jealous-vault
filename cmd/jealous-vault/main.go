@@ -30,6 +30,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/lock"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/proxmox"
+	"github.com/mnnoee/jealous-vault/internal/recovery"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
@@ -112,6 +113,8 @@ func run(ctx context.Context, args []string) error {
 		return cmdStatus(args[1:])
 	case "history":
 		return cmdHistory(args[1:])
+	case "recovery-kit":
+		return cmdRecoveryKit(args[1:])
 	case "version":
 		fmt.Printf("jealous-vault %s (commit %s, built %s)\n", version, commit, date)
 		return nil
@@ -131,7 +134,7 @@ Usage:
 
 Commands:
   init          write a config, generate the password and init the repository
-  repo          init, unlock, stats, diff, delete, copy
+  repo          init, unlock, stats, diff, delete, copy, passwd, key
   install       install the binary, systemd services and timers
   uninstall     stop the timers and remove the unit files
   backup        run a backup now
@@ -146,6 +149,7 @@ Commands:
   freshness     check the backup age and the backup timer
   status        show the last run and whether the backup is fresh
   history       show recent backup, check and verify runs
+  recovery-kit  write an offline recovery kit for this repository
   version       print version information
 
 Run "jealous-vault <command> --help" for command flags.
@@ -291,7 +295,7 @@ func cmdInit(ctx context.Context, args []string) error {
 
 func cmdRepo(ctx context.Context, args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: jealous-vault repo <init|unlock|stats|diff|delete|copy> [--config path]")
+		return errors.New("usage: jealous-vault repo <init|unlock|stats|diff|delete|copy|passwd|key> [--config path]")
 	}
 	switch args[0] {
 	case "init":
@@ -306,6 +310,10 @@ func cmdRepo(ctx context.Context, args []string) error {
 		return cmdRepoDelete(ctx, args[1:])
 	case "copy":
 		return cmdRepoCopy(ctx, args[1:])
+	case "passwd":
+		return cmdRepoPasswd(ctx, args[1:])
+	case "key":
+		return cmdRepoKey(ctx, args[1:])
 	default:
 		return fmt.Errorf("unknown repo command %q", args[0])
 	}
@@ -968,6 +976,134 @@ func cmdRepoCopy(ctx context.Context, args []string) error {
 	}
 	fmt.Println("copy finished")
 	return nil
+}
+
+func cmdRepoPasswd(ctx context.Context, args []string) error {
+	fs := newFlagSet("repo passwd")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	newPassword := stringFlag(fs, "new-password-file", "", "file for the new repository password")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if *newPassword == "" {
+		return errors.New("--new-password-file is required")
+	}
+	if !filepath.IsAbs(*newPassword) {
+		return fmt.Errorf("new password file %q must be absolute", *newPassword)
+	}
+	if _, err := os.Stat(*newPassword); err == nil {
+		return fmt.Errorf("%s already exists", *newPassword)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepare(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "repo passwd")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	if err := config.GeneratePassword(*newPassword); err != nil {
+		return fmt.Errorf("generate new password: %w", err)
+	}
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
+	if err := client.AddKey(ctx, *newPassword); err != nil {
+		return fmt.Errorf("add new key: %w", err)
+	}
+
+	verify := restic.New(restic.Options{
+		Binary:       cfg.ResticBinary,
+		Repository:   cfg.Repository.URL,
+		PasswordFile: *newPassword,
+		Env:          cfg.Repository.Env,
+		Extra:        cfg.ResticExtraOptions(),
+		Logger:       log,
+		Output:       io.Discard,
+	})
+	if err := verify.CheckAccess(ctx); err != nil {
+		return fmt.Errorf("new key was added, but verification failed; remove it with repo key list: %w", err)
+	}
+
+	fmt.Printf("new key: %s\n", *newPassword)
+	fmt.Println("Next steps:")
+	fmt.Printf("  set repository.password_file = %q in %s\n", *newPassword, *configPath)
+	fmt.Println("  jealous-vault repo key list")
+	fmt.Println("  jealous-vault repo key remove <old-id> --yes")
+	fmt.Println("Keep the old key until the new password is verified in production.")
+	return nil
+}
+
+func cmdRepoKey(ctx context.Context, args []string) error {
+	if len(args) == 0 {
+		return errors.New("usage: jealous-vault repo key <list|remove> [flags]")
+	}
+	switch args[0] {
+	case "list":
+		fs := newFlagSet("repo key list")
+		configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+		verbose := fs.Bool("verbose", false, "debug logging")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() > 0 {
+			return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+		}
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if err := prepare(cfg); err != nil {
+			return err
+		}
+		return resticClient(cfg, newLogger(*verbose)).Keys(ctx)
+	case "remove":
+		fs := newFlagSet("repo key remove")
+		configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+		yes := fs.Bool("yes", false, "confirm key removal")
+		verbose := fs.Bool("verbose", false, "debug logging")
+		if err := fs.Parse(args[1:]); err != nil {
+			return err
+		}
+		if fs.NArg() != 1 {
+			return errors.New("usage: jealous-vault repo key remove --yes <key-id>")
+		}
+		if !*yes {
+			return errors.New("refusing to remove a repository key without --yes")
+		}
+		cfg, err := loadConfig(*configPath)
+		if err != nil {
+			return err
+		}
+		if err := prepare(cfg); err != nil {
+			return err
+		}
+		runLock, busy, err := acquireRunLock(cfg, "repo key remove")
+		if err != nil {
+			return err
+		}
+		if busy {
+			return nil
+		}
+		defer runLock.Release()
+		return resticClient(cfg, newLogger(*verbose)).RemoveKey(ctx, fs.Arg(0))
+	default:
+		return fmt.Errorf("unknown repo key command %q", args[0])
+	}
 }
 
 func cmdSnapshots(ctx context.Context, args []string) error {
@@ -1844,6 +1980,36 @@ func cmdHistory(args []string) error {
 		)
 	}
 	return w.Flush()
+}
+
+func cmdRecoveryKit(args []string) error {
+	fs := newFlagSet("recovery-kit")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	output := stringFlag(fs, "output", "", "file that will hold the recovery kit")
+	force := fs.Bool("force", false, "overwrite an existing recovery kit")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+	if *output == "" {
+		return errors.New("--output is required")
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepare(cfg); err != nil {
+		return err
+	}
+	if err := recovery.Write(cfg, *output, *force, version); err != nil {
+		return err
+	}
+	fmt.Printf("recovery kit: %s\n", *output)
+	fmt.Println("It contains repository credentials. Store it offline and restrict access.")
+	return nil
 }
 
 func printStatusLine(label string, run *state.Run, now time.Time) {
