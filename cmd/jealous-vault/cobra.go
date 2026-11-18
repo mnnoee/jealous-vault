@@ -239,6 +239,7 @@ func installCommand(ctx context.Context) *cobra.Command {
 		configFlag(c)
 		c.Flags().String("prefix", "/usr/local/bin", "directory for the binary")
 		c.Flags().String("init", "", "scheduler: systemd, openrc or cron, detected when empty")
+		c.Flags().String("unit-dir", "", "override the systemd unit directory")
 		c.Flags().Bool("no-start", false, "write units but do not start the timers")
 		verboseFlag(c)
 	})

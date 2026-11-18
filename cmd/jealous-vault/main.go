@@ -459,6 +459,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	prefix := stringFlag(fs, "prefix", "/usr/local/bin", "directory for the binary")
 	initSystem := stringFlag(fs, "init", "", "scheduler: systemd, openrc or cron, detected when empty")
+	unitDir := stringFlag(fs, "unit-dir", "", "override the systemd unit directory")
 	noStart := fs.Bool("no-start", false, "write units but do not start the timers")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
@@ -492,6 +493,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 		ConfigPath: *configPath,
 		Job:        cfg.Job,
 		Init:       *initSystem,
+		UnitDir:    *unitDir,
 		SkipStart:  *noStart,
 		Out:        os.Stdout,
 		Log:        log,
