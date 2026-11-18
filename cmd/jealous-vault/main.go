@@ -77,54 +77,11 @@ func exitCode(err error) int {
 }
 
 func run(ctx context.Context, args []string) error {
-	if len(args) == 0 {
-		usage(os.Stdout)
-		return nil
-	}
-	switch args[0] {
-	case "init":
-		return cmdInit(ctx, args[1:])
-	case "repo":
-		return cmdRepo(ctx, args[1:])
-	case "install":
-		return cmdInstall(ctx, args[1:])
-	case "uninstall":
-		return cmdUninstall(ctx, args[1:])
-	case "backup":
-		return cmdBackup(ctx, args[1:])
-	case "vzdump":
-		return cmdVzdump(ctx, args[1:])
-	case "restore-vm":
-		return cmdRestoreVM(ctx, args[1:])
-	case "snapshots":
-		return cmdSnapshots(ctx, args[1:])
-	case "mount":
-		return cmdMount(ctx, args[1:])
-	case "restore":
-		return cmdRestore(ctx, args[1:])
-	case "test-restore":
-		return cmdTestRestore(ctx, args[1:])
-	case "check":
-		return cmdCheck(ctx, args[1:])
-	case "doctor":
-		return cmdDoctor(ctx, args[1:])
-	case "freshness":
-		return cmdFreshness(ctx, args[1:])
-	case "status":
-		return cmdStatus(args[1:])
-	case "history":
-		return cmdHistory(args[1:])
-	case "recovery-kit":
-		return cmdRecoveryKit(args[1:])
-	case "version":
-		fmt.Printf("jealous-vault %s (commit %s, built %s)\n", version, commit, date)
-		return nil
-	case "help", "-h", "--help":
-		usage(os.Stdout)
-		return nil
-	default:
-		return fmt.Errorf("unknown command %q, run \"jealous-vault help\"", args[0])
-	}
+	root := newRootCommand(ctx)
+	root.SetArgs(args)
+	root.SetOut(os.Stdout)
+	root.SetErr(os.Stderr)
+	return root.Execute()
 }
 
 func usage(w io.Writer) {
