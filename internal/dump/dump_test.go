@@ -138,6 +138,59 @@ printf '%s\n' "$*" > "$ARGS_FILE"
 	}
 }
 
+func TestRunMySQLIgnoresUserOptionFile(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".my.cnf"), []byte("[client]\npassword=wrong\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	homeFile := filepath.Join(dir, "home-seen")
+	t.Setenv("HOME_FILE", homeFile)
+	passwordFile := filepath.Join(dir, "mysql.pass")
+	if err := os.WriteFile(passwordFile, []byte("mysql-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	binary := fakeBinary(t, dir, "mysqldump", `file=""
+for a in "$@"; do
+  case "$a" in --result-file=*) file="${a#--result-file=}";; esac
+done
+printf 'data' > "$file"
+printf '%s' "$HOME" > "$HOME_FILE"
+`)
+
+	m := New(config.DumpOptions{
+		Dir:  filepath.Join(dir, "dumps"),
+		Keep: 1,
+		MySQL: &config.MySQLDump{
+			Enabled:      true,
+			Databases:    []string{"app"},
+			User:         "backup",
+			PasswordFile: passwordFile,
+			Binary:       binary,
+		},
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	runDir, err := m.Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen, err := os.ReadFile(homeFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(seen) != runDir {
+		t.Fatalf("dump HOME = %q, want private dump dir %q", seen, runDir)
+	}
+	if _, err := os.Stat(filepath.Join(runDir, ".my.cnf")); !os.IsNotExist(err) {
+		t.Error("user option file appeared in the dump directory")
+	}
+}
+
 func TestPrune(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"dump-20260101-000000-1", "dump-20260102-000000-2", "dump-20260103-000000-3"} {

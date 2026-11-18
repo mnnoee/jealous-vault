@@ -104,6 +104,7 @@ func (m *Manager) dumpPostgres(ctx context.Context, dir string, p config.Postgre
 
 func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump) error {
 	defaults := ""
+	env := os.Environ()
 	if my.PasswordFile != "" {
 		password, err := os.ReadFile(my.PasswordFile)
 		if err != nil {
@@ -115,6 +116,11 @@ func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump
 			return err
 		}
 		defer os.Remove(defaults)
+		// The client reads ~/.my.cnf after --defaults-extra-file, so a root
+		// .my.cnf with another password would override ours and break the
+		// dump. Point HOME at the private dump directory: there is no user
+		// option file there, and global option files still apply.
+		env = envWithHome(env, dir)
 	}
 	for _, database := range my.Databases {
 		file := filepath.Join(dir, "mysql-"+safeName(database)+".sql")
@@ -140,7 +146,7 @@ func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump
 		}
 		args = append(args, database)
 		m.log.Info("dumping mysql", "database", database, "file", file)
-		if err := runCommand(ctx, my.Binary, args, os.Environ(), m.log); err != nil {
+		if err := runCommand(ctx, my.Binary, args, env, m.log); err != nil {
 			return fmt.Errorf("mysqldump %s: %w", database, err)
 		}
 		if err := os.Chmod(file, 0o600); err != nil {
@@ -206,6 +212,19 @@ func runCommand(ctx context.Context, binary string, args, env []string, log *slo
 		return err
 	}
 	return fmt.Errorf("%w: %s", err, text)
+}
+
+// envWithHome replaces HOME in env so the MySQL client cannot read the
+// caller's ~/.my.cnf.
+func envWithHome(env []string, home string) []string {
+	out := make([]string, 0, len(env)+1)
+	for _, value := range env {
+		if strings.HasPrefix(value, "HOME=") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return append(out, "HOME="+home)
 }
 
 func safeName(name string) string {
