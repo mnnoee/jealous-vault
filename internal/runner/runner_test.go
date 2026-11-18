@@ -141,6 +141,13 @@ exit 1
 	if st.LastRun == nil || st.LastRun.Status != state.StatusFailed {
 		t.Fatalf("state = %+v", st)
 	}
+	runs, err := state.Store{Path: cfg.StateFile}.History(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != state.StatusFailed {
+		t.Fatalf("failed backup must be in history: %+v", runs)
+	}
 }
 
 func TestFailedPreHookSkipsBackup(t *testing.T) {
@@ -161,6 +168,13 @@ func TestFailedPreHookSkipsBackup(t *testing.T) {
 	}
 	if _, statErr := os.Stat(argsFile); !os.IsNotExist(statErr) {
 		t.Errorf("restic was called after a failed pre hook")
+	}
+	runs, err := state.Store{Path: cfg.StateFile}.History(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].Status != state.StatusFailed {
+		t.Fatalf("failed pre-hook run must be in history: %+v", runs)
 	}
 }
 

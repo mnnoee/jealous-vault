@@ -71,6 +71,27 @@ func TestDue(t *testing.T) {
 	}
 }
 
+func TestDueAcrossMidnight(t *testing.T) {
+	// A 23:50 daily job is still the most recent occurrence at 00:10.
+	now := at(2026, 11, 19, 0, 10)
+	got, err := MostRecent("*-*-* 23:50:00", now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := at(2026, 11, 18, 23, 50); !got.Equal(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+
+	due, _, err := Due("*-*-* 23:50:00", at(2026, 11, 18, 23, 40), now)
+	if err != nil || !due {
+		t.Fatalf("run before midnight must make the 23:50 job due: %v %v", due, err)
+	}
+	due, _, err = Due("*-*-* 23:50:00", at(2026, 11, 18, 23, 55), now)
+	if err != nil || due {
+		t.Fatalf("run after the schedule must not be due: %v %v", due, err)
+	}
+}
+
 func TestParseRejectsUnknown(t *testing.T) {
 	for _, calendar := range []string{"2026-11-18 03:00:00", "*-*-* *:*:00", "garbage"} {
 		if _, err := MostRecent(calendar, time.Now()); err == nil {
