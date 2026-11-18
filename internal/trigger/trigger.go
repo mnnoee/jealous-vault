@@ -42,6 +42,10 @@ func detect() Info {
 	cgroup := readFile("/proc/self/cgroup")
 	ancestors := parentNames(os.Getpid(), 4)
 	ssh := os.Getenv("SSH_CONNECTION")
+	if ssh == "" {
+		// sudo resets the environment, the ssh session is still in the tree.
+		ssh = ancestorSSH(os.Getpid(), 4)
+	}
 	info := classify(cgroup, os.Getenv("INVOCATION_ID") != "", ancestors, ssh)
 	if info.Source == "systemd" && info.Unit != "" {
 		info.Trigger = systemdTrigger(info.Unit)
@@ -131,6 +135,42 @@ func parentNames(pid int, depth int) []string {
 		pid = ppid
 	}
 	return names
+}
+
+// ancestorSSH looks for SSH_CONNECTION in the environment of the parent
+// processes. sudo wipes its own environment, but the ssh session above it
+// still carries the variable.
+func ancestorSSH(pid int, depth int) string {
+	for i := 0; i < depth; i++ {
+		pid = parentPID(pid)
+		if pid <= 1 {
+			return ""
+		}
+		env := readFile("/proc/" + strconv.Itoa(pid) + "/environ")
+		for _, entry := range strings.Split(env, "\x00") {
+			if value, ok := strings.CutPrefix(entry, "SSH_CONNECTION="); ok {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
+func parentPID(pid int) int {
+	stat := readFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	close := strings.LastIndex(stat, ")")
+	if close < 0 {
+		return 0
+	}
+	fields := strings.Fields(stat[close+1:])
+	if len(fields) < 2 {
+		return 0
+	}
+	ppid, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0
+	}
+	return ppid
 }
 
 // systemdTrigger asks systemd whether the timer or a person started the unit.
