@@ -14,12 +14,25 @@ import (
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/schedule"
 )
 
 // installCron writes a plain cron.d file. It is the last-resort scheduler for
 // hosts where neither systemd nor OpenRC exists but cron does, for example a
 // minimal container or an old distribution.
 func (i *Installer) installCron(cfg *config.Config, out io.Writer) error {
+	// Cron runs tick, so the tick parser must be able to read these calendars.
+	// Reject an explicit date or a wildcard hour here instead of failing every
+	// hour at runtime.
+	for name, calendar := range map[string]string{
+		"backup":    cfg.Schedule.OnCalendar,
+		"freshness": cfg.Freshness.Schedule,
+	} {
+		if _, err := schedule.MostRecent(calendar, time.Now()); err != nil {
+			return fmt.Errorf("cron mode: %s schedule: %w; use an explicit hour, not a date", name, err)
+		}
+	}
+
 	name := "jealous-vault"
 	if cfg.Job != "" && cfg.Job != "default" {
 		name += "-" + cfg.Job
