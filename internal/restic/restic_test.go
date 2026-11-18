@@ -343,3 +343,43 @@ func TestKeyCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvironmentCacheDir(t *testing.T) {
+	client := New(Options{
+		Repository: "local:/repo",
+		CacheDir:   "/var/cache/jealous-vault",
+	})
+	env := strings.Join(client.environment(), "\n")
+	if !strings.Contains(env, "RESTIC_CACHE_DIR=/var/cache/jealous-vault") {
+		t.Fatalf("cache directory is missing from the restic environment:\n%s", env)
+	}
+
+	plain := New(Options{Repository: "local:/repo"})
+	for _, entry := range plain.environment() {
+		if strings.HasPrefix(entry, "RESTIC_CACHE_DIR=") {
+			t.Fatalf("cache directory was set without being requested: %s", entry)
+		}
+	}
+}
+
+func TestCopyToPassesCacheDir(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "restic")
+	envFile := filepath.Join(dir, "env.log")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$RESTIC_CACHE_DIR\" > " + envFile + "\n"
+	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	client := New(Options{Binary: binary, Repository: "local:/source"})
+	if err := client.CopyTo(context.Background(), CopyDest{
+		Repository: "local:/dest",
+		CacheDir:   "/var/cache/jealous-vault",
+	}, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	env, _ := os.ReadFile(envFile)
+	if strings.TrimSpace(string(env)) != "/var/cache/jealous-vault" {
+		t.Fatalf("copy cache dir = %q", env)
+	}
+}

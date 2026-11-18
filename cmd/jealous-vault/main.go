@@ -188,6 +188,7 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 		Repository:   cfg.Repository.URL,
 		PasswordFile: cfg.Repository.PasswordFile,
 		Env:          cfg.Repository.Env,
+		CacheDir:     cfg.ResticCacheDir(),
 		Extra:        cfg.ResticExtraOptions(),
 		Logger:       log,
 		Output:       os.Stdout,
@@ -232,6 +233,7 @@ func cmdInit(ctx context.Context, args []string) error {
 	excludes := stringFlag(fs, "excludes", "", "comma separated exclude patterns")
 	profile := stringFlag(fs, "profile", "host", "backup profile: host, vm-dumps or custom")
 	passwordFile := stringFlag(fs, "password-file", "", "file that will hold the repository password")
+	cacheDir := stringFlag(fs, "cache-dir", config.DefaultCacheDir, "directory for the restic index cache")
 	stateFile := stringFlag(fs, "state-file", "", "file that will hold the last run state, defaults per job")
 	sftpKey := stringFlag(fs, "sftp-key", "", "private key for sftp repositories")
 	sftpKnownHosts := stringFlag(fs, "sftp-known-hosts", "", "known_hosts file for sftp repositories")
@@ -259,6 +261,7 @@ func cmdInit(ctx context.Context, args []string) error {
 		Job:            *job,
 		RepositoryURL:  *repoURL,
 		PasswordFile:   *passwordFile,
+		CacheDir:       *cacheDir,
 		StateFile:      *stateFile,
 		Profile:        *profile,
 		Paths:          splitComma(*paths),
@@ -958,6 +961,7 @@ func cmdRepoCopy(ctx context.Context, args []string) error {
 		Repository:   cfg.Copy.Repository,
 		PasswordFile: cfg.Copy.PasswordFile,
 		Env:          cfg.Copy.Env,
+		CacheDir:     cfg.ResticCacheDir(),
 	}
 	fmt.Printf("copying to %s, new only: %v\n", config.RedactURL(cfg.Copy.Repository), newOnly)
 	err = resticClient(cfg, log).CopyTo(ctx, dest, fs.Args(), newOnly)
@@ -1049,6 +1053,7 @@ func cmdRepoPasswd(ctx context.Context, args []string) error {
 		Repository:   cfg.Repository.URL,
 		PasswordFile: *newPassword,
 		Env:          verifyEnv,
+		CacheDir:     cfg.ResticCacheDir(),
 		Extra:        cfg.ResticExtraOptions(),
 		Logger:       log,
 		Output:       io.Discard,

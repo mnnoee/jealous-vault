@@ -24,6 +24,9 @@ const (
 	DefaultPath = "/etc/jealous-vault/config.toml"
 	// DefaultStateFile stores the result of the last backup and check.
 	DefaultStateFile = "/var/lib/jealous-vault/state.json"
+	// DefaultCacheDir is where restic keeps its index cache. systemd creates
+	// it through CacheDirectory= and units pass it as RESTIC_CACHE_DIR.
+	DefaultCacheDir = "/var/cache/jealous-vault"
 	// DefaultResticBinary is resolved through PATH.
 	DefaultResticBinary = "restic"
 )
@@ -70,6 +73,7 @@ type Repo struct {
 	URL            string            `toml:"url"`
 	PasswordFile   string            `toml:"password_file"`
 	EnvFile        string            `toml:"env_file"`
+	CacheDir       string            `toml:"cache_dir"`
 	SFTPKeyFile    string            `toml:"sftp_key_file"`
 	SFTPKnownHosts string            `toml:"sftp_known_hosts"`
 	SFTPConfig     string            `toml:"sftp_config"`
@@ -243,6 +247,9 @@ func Default() *Config {
 		Job:          "default",
 		StateFile:    DefaultStateFile,
 		ResticBinary: DefaultResticBinary,
+		Repository: Repo{
+			CacheDir: DefaultCacheDir,
+		},
 		Retention: Retention{
 			KeepLast:    3,
 			KeepDaily:   7,
@@ -362,6 +369,9 @@ func (c *Config) finish() error {
 	}
 	if c.ResticBinary == "" {
 		c.ResticBinary = DefaultResticBinary
+	}
+	if c.Repository.CacheDir == "" {
+		c.Repository.CacheDir = DefaultCacheDir
 	}
 	if c.Schedule.OnCalendar == "" {
 		c.Schedule.OnCalendar = "*-*-* 03:30:00"
@@ -587,6 +597,7 @@ func (c *Config) Validate() error {
 		{"alerts_file", c.AlertsFile},
 		{"repository.password_file", c.Repository.PasswordFile},
 		{"repository.env_file", c.Repository.EnvFile},
+		{"repository.cache_dir", c.Repository.CacheDir},
 		{"repository.sftp_key_file", c.Repository.SFTPKeyFile},
 		{"repository.sftp_known_hosts", c.Repository.SFTPKnownHosts},
 		{"repository.sftp_config", c.Repository.SFTPConfig},
@@ -980,4 +991,56 @@ func GeneratePassword(path string) error {
 		return err
 	}
 	return f.Sync()
+}
+
+// ResticCacheDir returns the cache directory restic has to use. Restic 0.19
+// and newer refuse to run without one, and relying on HOME or XDG_CACHE_HOME
+// is not an option: systemd units and cron jobs start without either.
+//
+// The preferred location is /var/cache/jealous-vault, which systemd creates
+// through CacheDirectory= and which the host backup profile excludes. When it
+// cannot be created, for example because the agent runs as a normal user, the
+// cache lives next to the state file instead.
+//
+// An empty result means RESTIC_CACHE_DIR is already configured explicitly and
+// must not be overridden.
+func (c *Config) ResticCacheDir() string {
+	// The environment wins: it is restic's documented knob and lets an
+	// operator override one host without editing the config.
+	if c.Repository.Env["RESTIC_CACHE_DIR"] != "" || os.Getenv("RESTIC_CACHE_DIR") != "" {
+		return ""
+	}
+	dir := c.Repository.CacheDir
+	if dir == "" {
+		dir = DefaultCacheDir
+	}
+	if dir != DefaultCacheDir {
+		// Explicit choice: never move it silently. If it cannot be created
+		// restic reports the path and fails, which is what the user asked for.
+		_ = usableCacheDir(dir)
+		return dir
+	}
+	if usableCacheDir(dir) {
+		return dir
+	}
+	fallback := filepath.Join(filepath.Dir(c.StateFile), "cache")
+	_ = usableCacheDir(fallback)
+	return fallback
+}
+
+// usableCacheDir makes sure dir exists and can actually hold files. MkdirAll
+// alone is not enough: it reports success for an existing directory that the
+// current user cannot write to, which would hide the fallback path.
+func usableCacheDir(dir string) bool {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return false
+	}
+	probe, err := os.CreateTemp(dir, ".probe-*")
+	if err != nil {
+		return false
+	}
+	name := probe.Name()
+	probe.Close()
+	_ = os.Remove(name)
+	return true
 }

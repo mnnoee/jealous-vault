@@ -18,6 +18,7 @@ type InitOptions struct {
 	StateFile      string
 	RepositoryURL  string
 	PasswordFile   string
+	CacheDir       string
 	Profile        string
 	Paths          []string
 	Excludes       []string
@@ -113,6 +114,10 @@ func RenderExample(o InitOptions) string {
 	if o.SFTPKnownHosts != "" {
 		sftpKnownHostsLine = "sftp_known_hosts = " + quote(o.SFTPKnownHosts)
 	}
+	cacheDir := o.CacheDir
+	if cacheDir == "" {
+		cacheDir = DefaultCacheDir
+	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `# JealousVault agent configuration.
@@ -133,6 +138,8 @@ url = %s
 password_file = %s
 # Optional KEY=VALUE file with AWS_ACCESS_KEY_ID and friends.
 # env_file = "/etc/jealous-vault/restic.env"
+# Restic keeps its index cache here. The agent creates it with mode 0700.
+cache_dir = %s
 # SFTP only: isolated SSH config, system ssh files are not touched.
 %s
 %s
@@ -296,7 +303,7 @@ password_file = ""
 password_env = ""
 security = "starttls"
 timeout = "15s"
-`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), quote(filepath.Join(filepath.Dir(stateFile), "dumps")), o.Proxmox)
+`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), quote(cacheDir), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), quote(filepath.Join(filepath.Dir(stateFile), "dumps")), o.Proxmox)
 
 	return b.String()
 }

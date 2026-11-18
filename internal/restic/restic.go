@@ -29,9 +29,12 @@ type Options struct {
 	Repository   string
 	PasswordFile string
 	Env          map[string]string
-	Extra        []string
-	Logger       *slog.Logger
-	Output       io.Writer
+	// CacheDir is passed to restic as RESTIC_CACHE_DIR. Set it when the
+	// environment has no HOME or XDG_CACHE_HOME, for example under systemd.
+	CacheDir string
+	Extra    []string
+	Logger   *slog.Logger
+	Output   io.Writer
 }
 
 // Client runs restic with a fixed repository and environment.
@@ -39,6 +42,7 @@ type Client struct {
 	binary       string
 	repository   string
 	passwordFile string
+	cacheDir     string
 	env          map[string]string
 	extra        []string
 	log          *slog.Logger
@@ -63,6 +67,7 @@ func New(o Options) *Client {
 		binary:       binary,
 		repository:   o.Repository,
 		passwordFile: o.PasswordFile,
+		cacheDir:     o.CacheDir,
 		env:          o.Env,
 		extra:        append([]string(nil), o.Extra...),
 		log:          log,
@@ -75,6 +80,9 @@ func (c *Client) environment() []string {
 	env = append(env, "RESTIC_REPOSITORY="+c.repository)
 	if c.passwordFile != "" {
 		env = append(env, "RESTIC_PASSWORD_FILE="+c.passwordFile)
+	}
+	if c.cacheDir != "" {
+		env = append(env, "RESTIC_CACHE_DIR="+c.cacheDir)
 	}
 	keys := make([]string, 0, len(c.env))
 	for k := range c.env {
@@ -389,6 +397,8 @@ type CopyDest struct {
 	Repository   string
 	PasswordFile string
 	Env          map[string]string
+	// CacheDir is passed to restic as RESTIC_CACHE_DIR, see Options.CacheDir.
+	CacheDir string
 }
 
 // CopyTo copies snapshots to a second repository. When newOnly is true restic
@@ -446,6 +456,9 @@ func copyEnvironment(dest CopyDest) []string {
 	env = append(env, "RESTIC_REPOSITORY="+dest.Repository)
 	if dest.PasswordFile != "" {
 		env = append(env, "RESTIC_PASSWORD_FILE="+dest.PasswordFile)
+	}
+	if dest.CacheDir != "" {
+		env = append(env, "RESTIC_CACHE_DIR="+dest.CacheDir)
 	}
 	for key, value := range dest.Env {
 		env = append(env, key+"="+value)

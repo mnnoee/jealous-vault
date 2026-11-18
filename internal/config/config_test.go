@@ -299,6 +299,32 @@ paths = ["/etc"]
 	}
 }
 
+func TestRenderExampleCacheDir(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	custom := filepath.Join(dir, "cache")
+
+	err := WriteExample(path, InitOptions{
+		Host:          "node-1",
+		RepositoryURL: "s3:https://s3.example.com/jealous-vault/node-1",
+		PasswordFile:  filepath.Join(dir, "restic.pass"),
+		CacheDir:      custom,
+		Profile:       "custom",
+		Paths:         []string{"/srv/data"},
+	}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("generated config does not load: %v", err)
+	}
+	if cfg.Repository.CacheDir != custom {
+		t.Fatalf("cache_dir = %q, want %q", cfg.Repository.CacheDir, custom)
+	}
+}
+
 func TestRenderExampleLoads(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -777,5 +803,73 @@ databases = ["../app"]
 `)
 	if _, err := Load(bad); err == nil {
 		t.Fatal("invalid dump config was accepted")
+	}
+}
+
+func TestUsableCacheDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cache")
+	if !usableCacheDir(dir) {
+		t.Fatalf("fresh directory %s was reported unusable", dir)
+	}
+	if !usableCacheDir(dir) {
+		t.Fatalf("existing writable directory %s was reported unusable", dir)
+	}
+
+	if os.Geteuid() != 0 {
+		readonly := filepath.Join(t.TempDir(), "readonly")
+		if err := os.Mkdir(readonly, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		if usableCacheDir(readonly) {
+			t.Fatalf("read-only directory %s was reported usable", readonly)
+		}
+	}
+}
+
+func TestResticCacheDir(t *testing.T) {
+	cfg := Default()
+	cfg.StateFile = filepath.Join(t.TempDir(), "state.json")
+	t.Setenv("RESTIC_CACHE_DIR", "")
+	t.Setenv("HOME", "")
+
+	got := cfg.ResticCacheDir()
+	if got == "" {
+		t.Fatal("ResticCacheDir must always pass a cache directory to restic")
+	}
+	if !filepath.IsAbs(got) {
+		t.Fatalf("ResticCacheDir = %q, want an absolute path", got)
+	}
+	if st, err := os.Stat(got); err != nil || !st.IsDir() {
+		t.Fatalf("ResticCacheDir = %q is not a directory: %v", got, err)
+	}
+
+	// HOME must not change the answer any more.
+	t.Setenv("HOME", "/root")
+	if second := cfg.ResticCacheDir(); second != got {
+		t.Fatalf("ResticCacheDir depends on HOME: %q then %q", got, second)
+	}
+
+	// An explicit value from the config wins over the default.
+	custom := filepath.Join(t.TempDir(), "custom-cache")
+	cfg.Repository.CacheDir = custom
+	t.Setenv("RESTIC_CACHE_DIR", "")
+	if got := cfg.ResticCacheDir(); got != custom {
+		t.Fatalf("custom cache dir = %q, want %q", got, custom)
+	}
+	if st, err := os.Stat(custom); err != nil || !st.IsDir() {
+		t.Fatalf("custom cache dir was not created: %v", err)
+	}
+
+	// An explicit value from the config env wins over the config key.
+	cfg.Repository.Env = map[string]string{"RESTIC_CACHE_DIR": "/srv/cache"}
+	if got := cfg.ResticCacheDir(); got != "" {
+		t.Fatalf("config env cache dir was overridden: %q", got)
+	}
+
+	// So does a value from the process environment.
+	cfg.Repository.Env = nil
+	t.Setenv("RESTIC_CACHE_DIR", "/srv/cache2")
+	if got := cfg.ResticCacheDir(); got != "" {
+		t.Fatalf("process cache dir was overridden: %q", got)
 	}
 }
