@@ -16,9 +16,7 @@ import (
 )
 
 const (
-	shortCooldown = 3 * time.Hour
-	longCooldown  = 6 * time.Hour
-	recordTTL     = 90 * 24 * time.Hour
+	recordTTL = 90 * 24 * time.Hour
 )
 
 type alertRecord struct {
@@ -35,22 +33,25 @@ type alertDisk struct {
 }
 
 type limiter struct {
-	path string
-	now  func() time.Time
-	mu   sync.Mutex
+	path  string
+	now   func() time.Time
+	short time.Duration
+	long  time.Duration
+	mu    sync.Mutex
 }
 
-func newLimiter(path string, now func() time.Time) *limiter {
+func newLimiter(path string, now func() time.Time, short, long time.Duration) *limiter {
 	if now == nil {
 		now = time.Now
 	}
-	return &limiter{path: path, now: now}
+	return &limiter{path: path, now: now, short: short, long: long}
 }
 
 // Allow reports whether the alert should be sent and how many earlier alerts
 // of the same kind were suppressed.
 func (l *limiter) Allow(ev Event) (bool, int, error) {
-	if l.path == "" {
+	cooldown := cooldownFor(ev.Event, l.short, l.long)
+	if l.path == "" || cooldown <= 0 {
 		return true, 0, nil
 	}
 	l.mu.Lock()
@@ -67,10 +68,6 @@ func (l *limiter) Allow(ev Event) (bool, int, error) {
 		return true, 0, nil
 	}
 
-	cooldown := time.Duration(record.CooldownSeconds) * time.Second
-	if cooldown <= 0 {
-		cooldown = cooldownFor(ev.Event)
-	}
 	if now.Sub(record.LastSent) < cooldown {
 		record.Suppressed++
 		state.Records[key] = record
@@ -95,11 +92,12 @@ func (l *limiter) MarkSent(ev Event) error {
 		return err
 	}
 	key := alertKey(ev)
+	cooldown := cooldownFor(ev.Event, l.short, l.long)
 	state.Records[key] = alertRecord{
 		Event:           ev.Event,
 		ErrorHash:       hashError(errorSignature(ev)),
 		LastSent:        l.now(),
-		CooldownSeconds: int64(cooldownFor(ev.Event) / time.Second),
+		CooldownSeconds: int64(cooldown / time.Second),
 		Suppressed:      0,
 	}
 	return l.save(state)
@@ -128,12 +126,12 @@ func hashError(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func cooldownFor(event string) time.Duration {
+func cooldownFor(event string, short, long time.Duration) time.Duration {
 	switch event {
 	case "freshness", "verify", "copy":
-		return longCooldown
+		return long
 	default:
-		return shortCooldown
+		return short
 	}
 }
 

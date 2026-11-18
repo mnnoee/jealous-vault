@@ -48,7 +48,7 @@ func TestNormalizeResticError(t *testing.T) {
 
 func TestDedupGroupsByErrorClass(t *testing.T) {
 	now := time.Date(2026, 11, 17, 16, 26, 0, 0, time.UTC)
-	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now })
+	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 3*time.Hour, 6*time.Hour)
 
 	first := Event{Event: "backup", Status: "failed", Host: "jv-vm", Error: resticMissingRepoError}
 	first.Normalize()

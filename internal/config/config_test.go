@@ -20,6 +20,35 @@ func writeFile(t *testing.T, dir, name, body string) string {
 	return path
 }
 
+func TestDedupWindows(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+host = "test-host"
+state_file = "/tmp/state.json"
+
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+
+[backup]
+paths = ["/etc"]
+
+[notify.dedup]
+backup = "15m"
+freshness = "0"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.DedupBackup != 15*time.Minute {
+		t.Errorf("backup window = %s, want 15m", cfg.DedupBackup)
+	}
+	if cfg.DedupFreshness != 0 {
+		t.Errorf("freshness window = %s, want disabled", cfg.DedupFreshness)
+	}
+}
+
 func TestAuditFileMustBeAbsolute(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "config.toml", `
@@ -72,6 +101,9 @@ paths = ["/etc"]
 	}
 	if cfg.AuditFile != DefaultAuditFile {
 		t.Errorf("audit file = %q, want %q", cfg.AuditFile, DefaultAuditFile)
+	}
+	if cfg.DedupBackup != 3*time.Hour || cfg.DedupFreshness != 6*time.Hour {
+		t.Errorf("dedup windows = %s/%s, want 3h/6h", cfg.DedupBackup, cfg.DedupFreshness)
 	}
 	if cfg.BackupTimeout != 6*time.Hour {
 		t.Errorf("backup timeout = %s, want 6h", cfg.BackupTimeout)

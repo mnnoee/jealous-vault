@@ -984,6 +984,8 @@ func cmdRepoCopy(ctx context.Context, args []string) error {
 	notifier := notify.New(notify.Options{
 		Webhooks:        cfg.Notify.Webhooks,
 		DedupFile:       cfg.AlertsFile,
+		DedupBackup:     cfg.DedupBackup,
+		DedupFreshness:  cfg.DedupFreshness,
 		Email:           notify.EmailOptionsFromConfig(cfg),
 		TelegramToken:   cfg.Notify.TelegramToken,
 		TelegramChatID:  cfg.Notify.TelegramChatID,
@@ -1604,6 +1606,8 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 			notifier := notify.New(notify.Options{
 				Webhooks:        cfg.Notify.Webhooks,
 				DedupFile:       cfg.AlertsFile,
+				DedupBackup:     cfg.DedupBackup,
+				DedupFreshness:  cfg.DedupFreshness,
 				Email:           notify.EmailOptionsFromConfig(cfg),
 				TelegramToken:   cfg.Notify.TelegramToken,
 				TelegramChatID:  cfg.Notify.TelegramChatID,
@@ -1882,6 +1886,8 @@ func cmdFreshness(ctx context.Context, args []string) error {
 			Webhooks:         cfg.Notify.Webhooks,
 			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
 			DedupFile:        cfg.AlertsFile,
+			DedupBackup:      cfg.DedupBackup,
+			DedupFreshness:   cfg.DedupFreshness,
 			Email:            notify.EmailOptionsFromConfig(cfg),
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,

@@ -62,6 +62,8 @@ type Config struct {
 	BackupAttemptTimeout time.Duration `toml:"-"`
 	CheckTimeout         time.Duration `toml:"-"`
 	NotifyTimeout        time.Duration `toml:"-"`
+	DedupBackup          time.Duration `toml:"-"`
+	DedupFreshness       time.Duration `toml:"-"`
 	RandomizedDelay      time.Duration `toml:"-"`
 	FreshnessMaxAge      time.Duration `toml:"-"`
 	VerifyTimeout        time.Duration `toml:"-"`
@@ -227,6 +229,14 @@ type Notify struct {
 	NotifyOnSuccess  bool     `toml:"notify_on_success"`
 	Timeout          string   `toml:"timeout"`
 	Email            Email    `toml:"email"`
+	Dedup            Dedup    `toml:"dedup"`
+}
+
+// Dedup configures how long identical alerts are suppressed. A zero value
+// disables deduplication for that class; both zero disable it entirely.
+type Dedup struct {
+	Backup    string `toml:"backup"`
+	Freshness string `toml:"freshness"`
 }
 
 // Email configures the email channel.
@@ -490,6 +500,12 @@ func (c *Config) finish() error {
 	if c.Notify.Timeout == "" {
 		c.Notify.Timeout = "10s"
 	}
+	if c.Notify.Dedup.Backup == "" {
+		c.Notify.Dedup.Backup = "3h"
+	}
+	if c.Notify.Dedup.Freshness == "" {
+		c.Notify.Dedup.Freshness = "6h"
+	}
 	if c.Notify.Email.Mode == "" {
 		c.Notify.Email.Mode = "local"
 	}
@@ -553,6 +569,12 @@ func (c *Config) finish() error {
 		return err
 	}
 	if c.NotifyTimeout, err = parseDuration("notify.timeout", c.Notify.Timeout); err != nil {
+		return err
+	}
+	if c.DedupBackup, err = parseDuration("notify.dedup.backup", c.Notify.Dedup.Backup); err != nil {
+		return err
+	}
+	if c.DedupFreshness, err = parseDuration("notify.dedup.freshness", c.Notify.Dedup.Freshness); err != nil {
 		return err
 	}
 	if c.EmailTimeout, err = parseDuration("notify.email.timeout", c.Notify.Email.Timeout); err != nil {
@@ -732,6 +754,9 @@ func (c *Config) Validate() error {
 	}
 	if c.RetryDelay < 0 {
 		return errors.New("backup.retry_delay must not be negative")
+	}
+	if c.DedupBackup < 0 || c.DedupFreshness < 0 {
+		return errors.New("notify.dedup values must not be negative")
 	}
 	if c.Backup.LimitUpload < 0 {
 		return errors.New("backup.limit_upload must not be negative")

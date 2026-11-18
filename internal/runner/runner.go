@@ -55,6 +55,8 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			PingURL:          cfg.Notify.PingURL,
 			FreshnessPingURL: cfg.Notify.FreshnessPingURL,
 			DedupFile:        cfg.AlertsFile,
+			DedupBackup:      cfg.DedupBackup,
+			DedupFreshness:   cfg.DedupFreshness,
 			Email:            notify.EmailOptionsFromConfig(cfg),
 			TelegramToken:    cfg.Notify.TelegramToken,
 			TelegramChatID:   cfg.Notify.TelegramChatID,

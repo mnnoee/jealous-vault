@@ -291,6 +291,12 @@ telegram_chat_ids = []
 notify_on_success = false
 timeout = "10s"
 
+[notify.dedup]
+# How long identical alerts stay suppressed. Minutes or hours both work.
+# 0 disables deduplication for that class; both zero disable it completely.
+backup = "3h"
+freshness = "6h"
+
 [notify.email]
 # Email is a first class channel. local uses sendmail or localhost:25,
 # smtp uses a relay with tls, starttls or none.

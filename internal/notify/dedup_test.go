@@ -14,9 +14,42 @@ import (
 	"time"
 )
 
+func TestLimiterCustomCooldown(t *testing.T) {
+	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
+	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 10*time.Minute, 2*time.Hour)
+	ev := Event{Host: "node-1", Event: "backup", Status: "failed", Error: "s3 auth failed"}
+
+	if allowed, _, _ := l.Allow(ev); !allowed {
+		t.Fatal("first alert was suppressed")
+	}
+	if err := l.MarkSent(ev); err != nil {
+		t.Fatal(err)
+	}
+	if allowed, _, _ := l.Allow(ev); allowed {
+		t.Fatal("alert inside the custom cooldown was allowed")
+	}
+	now = now.Add(10*time.Minute + time.Second)
+	if allowed, _, _ := l.Allow(ev); !allowed {
+		t.Fatal("alert after the custom cooldown was suppressed")
+	}
+}
+
+func TestLimiterDisabled(t *testing.T) {
+	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
+	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 0, 0)
+	ev := Event{Host: "node-1", Event: "backup", Status: "failed", Error: "s3 auth failed"}
+
+	if err := l.MarkSent(ev); err != nil {
+		t.Fatal(err)
+	}
+	if allowed, suppressed, _ := l.Allow(ev); !allowed || suppressed != 0 {
+		t.Fatalf("dedup disabled but alert was suppressed: allowed=%v suppressed=%d", allowed, suppressed)
+	}
+}
+
 func TestLimiterCooldownAndSuppressed(t *testing.T) {
 	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
-	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now })
+	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 3*time.Hour, 6*time.Hour)
 	ev := Event{Host: "node-1", Event: "backup", Status: "failed", Error: "s3 auth failed"}
 
 	allowed, suppressed, err := l.Allow(ev)
@@ -69,7 +102,7 @@ func TestLimiterCooldownAndSuppressed(t *testing.T) {
 
 func TestLimiterNewErrorSendsImmediately(t *testing.T) {
 	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
-	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now })
+	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 3*time.Hour, 6*time.Hour)
 
 	first := Event{Host: "node-1", Event: "backup", Status: "failed", Error: "s3 auth failed"}
 	if allowed, _, _ := l.Allow(first); !allowed {
@@ -91,10 +124,12 @@ func TestNotifierDeduplicatesAndReportsSuppressed(t *testing.T) {
 	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
 	srv, requests := recorder(t, http.StatusOK)
 	notifier := New(Options{
-		Webhooks:  []string{srv.URL + "/hook"},
-		DedupFile: filepath.Join(t.TempDir(), "alerts.json"),
-		Now:       func() time.Time { return now },
-		Timeout:   time.Second,
+		Webhooks:       []string{srv.URL + "/hook"},
+		DedupFile:      filepath.Join(t.TempDir(), "alerts.json"),
+		DedupBackup:    3 * time.Hour,
+		DedupFreshness: 6 * time.Hour,
+		Now:            func() time.Time { return now },
+		Timeout:        time.Second,
 	})
 
 	ev := Event{Event: "backup", Status: "failed", Host: "node-1", Error: "disk full", Time: now}
@@ -135,6 +170,8 @@ func TestSuccessIsNeverDeduplicated(t *testing.T) {
 	notifier := New(Options{
 		Webhooks:        []string{srv.URL + "/hook"},
 		DedupFile:       filepath.Join(t.TempDir(), "alerts.json"),
+		DedupBackup:     3 * time.Hour,
+		DedupFreshness:  6 * time.Hour,
 		Now:             func() time.Time { return now },
 		NotifyOnSuccess: true,
 		Timeout:         time.Second,
@@ -164,11 +201,13 @@ func TestSuppressedAlertStillPings(t *testing.T) {
 	now := time.Date(2026, 11, 17, 3, 0, 0, 0, time.UTC)
 	srv, requests := recorder(t, http.StatusOK)
 	notifier := New(Options{
-		Webhooks:  []string{srv.URL + "/hook"},
-		PingURL:   srv.URL + "/ping",
-		DedupFile: filepath.Join(t.TempDir(), "alerts.json"),
-		Now:       func() time.Time { return now },
-		Timeout:   time.Second,
+		Webhooks:       []string{srv.URL + "/hook"},
+		PingURL:        srv.URL + "/ping",
+		DedupFile:      filepath.Join(t.TempDir(), "alerts.json"),
+		DedupBackup:    3 * time.Hour,
+		DedupFreshness: 6 * time.Hour,
+		Now:            func() time.Time { return now },
+		Timeout:        time.Second,
 	})
 
 	ev := Event{Event: "backup", Status: "failed", Host: "node-1", Error: "disk full", Time: now}
@@ -209,10 +248,12 @@ func TestDedupMarksWhenOneChannelSucceeds(t *testing.T) {
 	}
 
 	notifier := New(Options{
-		Webhooks:  []string{srv.URL + "/hook"},
-		DedupFile: filepath.Join(dir, "alerts.json"),
-		Now:       func() time.Time { return now },
-		Timeout:   time.Second,
+		Webhooks:       []string{srv.URL + "/hook"},
+		DedupFile:      filepath.Join(dir, "alerts.json"),
+		DedupBackup:    3 * time.Hour,
+		DedupFreshness: 6 * time.Hour,
+		Now:            func() time.Time { return now },
+		Timeout:        time.Second,
 		Email: EmailOptions{
 			Enabled:  true,
 			Mode:     "local",

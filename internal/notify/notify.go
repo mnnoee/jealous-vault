@@ -52,6 +52,8 @@ type Options struct {
 	PingURL          string
 	FreshnessPingURL string
 	DedupFile        string
+	DedupBackup      time.Duration
+	DedupFreshness   time.Duration
 	Now              func() time.Time
 	Email            EmailOptions
 	TelegramToken    string
@@ -105,7 +107,7 @@ func New(o Options) *Notifier {
 		timeout:          timeout,
 		client:           client,
 		log:              log,
-		limiter:          newLimiter(o.DedupFile, o.Now),
+		limiter:          newLimiter(o.DedupFile, o.Now, o.DedupBackup, o.DedupFreshness),
 	}
 	if o.Email.Enabled {
 		notifier.email = newEmailSender(o.Email)
