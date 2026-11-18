@@ -63,7 +63,9 @@ const (
 	keepHistoryRuns = 2000
 )
 
-// Load returns an empty state when the file does not exist yet.
+// Load returns an empty state when the file does not exist yet. A state file
+// torn by a crash is moved aside and treated as empty: a backup agent must
+// keep running even when its tiny bookkeeping file is damaged.
 func (s Store) Load() (*State, error) {
 	data, err := os.ReadFile(s.Path)
 	if err != nil {
@@ -74,9 +76,28 @@ func (s Store) Load() (*State, error) {
 	}
 	var st State
 	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", s.Path, err)
+		if _, qerr := quarantine(s.Path); qerr != nil {
+			return nil, fmt.Errorf("parse %s: %w", s.Path, err)
+		}
+		return &State{}, nil
 	}
 	return &st, nil
+}
+
+// quarantine moves an unreadable state file out of the way so the next save
+// starts clean while the damaged bytes stay around for inspection.
+func quarantine(path string) (string, error) {
+	dst := path + ".corrupt-" + time.Now().UTC().Format("20060102T150405")
+	for i := 1; ; i++ {
+		if _, err := os.Stat(dst); errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		dst = fmt.Sprintf("%s.corrupt-%s-%d", path, time.Now().UTC().Format("20060102T150405"), i)
+	}
+	if err := os.Rename(path, dst); err != nil {
+		return "", err
+	}
+	return dst, nil
 }
 
 // Save writes the state atomically with owner-only permissions.
@@ -151,6 +172,9 @@ func (s Store) Append(run Run) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
+	if err := repairTail(path); err != nil {
+		return err
+	}
 	if info, err := os.Stat(path); err == nil && info.Size() >= maxHistoryBytes {
 		if err := s.rotateHistory(path); err != nil {
 			return err
@@ -175,7 +199,8 @@ func (s Store) Append(run Run) error {
 }
 
 // History returns the newest limit runs in chronological order. A limit of
-// zero returns everything.
+// zero returns everything. A record torn by a crash at the very end of the
+// file is ignored; a malformed record in the middle is still an error.
 func (s Store) History(limit int) ([]Run, error) {
 	path := s.historyPath()
 	f, err := os.Open(path)
@@ -188,6 +213,7 @@ func (s Store) History(limit int) ([]Run, error) {
 	defer f.Close()
 
 	var runs []Run
+	var torn []byte
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 64<<10), 1<<20)
 	for scanner.Scan() {
@@ -197,7 +223,14 @@ func (s Store) History(limit int) ([]Run, error) {
 		}
 		var run Run
 		if err := json.Unmarshal(line, &run); err != nil {
-			return nil, fmt.Errorf("parse %s: %w", path, err)
+			if torn != nil {
+				return nil, fmt.Errorf("parse %s: %w", path, err)
+			}
+			torn = append([]byte(nil), line...)
+			continue
+		}
+		if torn != nil {
+			return nil, fmt.Errorf("parse %s: malformed history record in the middle of the file", path)
 		}
 		runs = append(runs, run)
 	}
@@ -208,6 +241,36 @@ func (s Store) History(limit int) ([]Run, error) {
 		runs = runs[len(runs)-limit:]
 	}
 	return runs, nil
+}
+
+// repairTail makes the history safe for the next append. A record without a
+// trailing newline is either a valid record written just before a crash or a
+// torn one; the former gets a newline, the latter is cut off.
+func repairTail(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if len(data) == 0 || data[len(data)-1] == '\n' {
+		return nil
+	}
+	line := bytes.TrimSpace(data[bytes.LastIndexByte(data, '\n')+1:])
+	var run Run
+	if json.Unmarshal(line, &run) == nil {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		if _, err := f.Write([]byte{'\n'}); err != nil {
+			return err
+		}
+		return f.Sync()
+	}
+	return os.Truncate(path, int64(bytes.LastIndexByte(data, '\n')+1))
 }
 
 func (s Store) rotateHistory(path string) error {

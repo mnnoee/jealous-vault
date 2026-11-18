@@ -6,6 +6,7 @@ package state
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -168,5 +169,88 @@ func TestHistoryMissingIsEmpty(t *testing.T) {
 	}
 	if len(runs) != 0 {
 		t.Fatalf("history = %+v", runs)
+	}
+}
+
+func TestLoadCorruptStateIsQuarantined(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	if err := os.WriteFile(path, []byte(`{"last_run":{"kind":"back`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Path: path}
+	st, err := store.Load()
+	if err != nil {
+		t.Fatalf("corrupt state must not stop the agent: %v", err)
+	}
+	if st.LastRun != nil {
+		t.Fatalf("expected empty state, got %+v", st)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("corrupt state was not moved aside: %v", err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !strings.HasPrefix(entries[0].Name(), "state.json.corrupt-") {
+		t.Fatalf("quarantined file = %v", entries)
+	}
+}
+
+func TestHistoryIgnoresTornTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.jsonl")
+	good := `{"kind":"backup","status":"success","duration_seconds":1}` + "\n"
+	if err := os.WriteFile(path, []byte(good+`{"kind":"backup","started_at":"2026-11`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Path: filepath.Join(dir, "state.json"), HistoryPath: path}
+	runs, err := store.History(0)
+	if err != nil {
+		t.Fatalf("torn tail must be ignored: %v", err)
+	}
+	if len(runs) != 1 || runs[0].Kind != KindBackup {
+		t.Fatalf("history = %+v", runs)
+	}
+}
+
+func TestAppendRepairsTornTail(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.jsonl")
+	good := `{"kind":"backup","status":"success","duration_seconds":1}` + "\n"
+	if err := os.WriteFile(path, []byte(good+`{"kind":"backup","started_at":"2026-11`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Path: filepath.Join(dir, "state.json"), HistoryPath: path}
+	run := Run{Kind: KindBackup, StartedAt: time.Now(), FinishedAt: time.Now(), Status: StatusSuccess, SnapshotID: "after-crash"}
+	if err := store.Append(run); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := store.History(0)
+	if err != nil {
+		t.Fatalf("history after repair: %v", err)
+	}
+	if len(runs) != 2 || runs[1].SnapshotID != "after-crash" {
+		t.Fatalf("history = %+v", runs)
+	}
+}
+
+func TestHistoryRejectsMalformedMiddle(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "history.jsonl")
+	body := `{"kind":"backup","status":"success","duration_seconds":1}` + "\n" +
+		`not json` + "\n" +
+		`{"kind":"backup","status":"success","duration_seconds":1}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := Store{Path: filepath.Join(dir, "state.json"), HistoryPath: path}
+	if _, err := store.History(0); err == nil {
+		t.Fatal("malformed middle record must be reported")
 	}
 }
