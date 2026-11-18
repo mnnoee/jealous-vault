@@ -95,6 +95,30 @@ func TestInstallCron(t *testing.T) {
 	}
 }
 
+func TestCronBlockIdempotent(t *testing.T) {
+	existing := "SHELL=/bin/sh\nPATH=/usr/bin:/bin\n# BEGIN jealous-vault\nold line\n# END jealous-vault\n"
+	block := "# BEGIN jealous-vault\n17 * * * * root /usr/local/bin/jealous-vault tick --config /etc/jv.toml\n# END jealous-vault\n"
+
+	updated := replaceCronBlock(existing, "jealous-vault", block)
+	if strings.Count(updated, "# BEGIN jealous-vault") != 1 {
+		t.Fatalf("block duplicated:\n%s", updated)
+	}
+	if strings.Contains(updated, "old line") {
+		t.Fatalf("old block survived:\n%s", updated)
+	}
+	if !strings.Contains(updated, "/etc/jv.toml") {
+		t.Fatalf("new block missing:\n%s", updated)
+	}
+
+	stripped := stripCronBlock(updated, "jealous-vault")
+	if strings.Contains(stripped, "jealous-vault") {
+		t.Fatalf("block not removed:\n%s", stripped)
+	}
+	if !strings.Contains(stripped, "SHELL=/bin/sh") {
+		t.Fatalf("unrelated lines were removed:\n%s", stripped)
+	}
+}
+
 func TestInstallCronRejectsExplicitDate(t *testing.T) {
 	dir := t.TempDir()
 	cfg := config.Default()

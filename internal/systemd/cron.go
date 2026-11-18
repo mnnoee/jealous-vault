@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,22 @@ func (i *Installer) installCron(cfg *config.Config, out io.Writer) error {
 		fmt.Fprintf(&b, "%s root %s\n", when, cronCommand(i.BinaryPath, entry.command, i.ConfigPath, entry.jitter))
 	}
 
+	// FreeBSD cron does not read /etc/cron.d; it reads /etc/crontab only.
+	// Keep a marked block there so reinstall and uninstall stay idempotent.
+	if runtime.GOOS == "freebsd" {
+		existing, err := os.ReadFile(i.FreeBSDCrontab)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		block := "# BEGIN " + name + "\n" + b.String() + "# END " + name + "\n"
+		updated := replaceCronBlock(string(existing), name, block)
+		if err := os.WriteFile(i.FreeBSDCrontab, []byte(updated), 0o644); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "updated %s\n", i.FreeBSDCrontab)
+		return nil
+	}
+
 	if err := os.MkdirAll(i.CronDir, 0o755); err != nil {
 		return err
 	}
@@ -86,6 +103,24 @@ func (i *Installer) installCron(cfg *config.Config, out io.Writer) error {
 }
 
 func (i *Installer) uninstallCron(out io.Writer) error {
+	if runtime.GOOS == "freebsd" {
+		data, err := os.ReadFile(i.FreeBSDCrontab)
+		if err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		name := "jealous-vault"
+		if i.Job != "" && i.Job != "default" {
+			name += "-" + i.Job
+		}
+		updated := stripCronBlock(string(data), name)
+		if updated != string(data) {
+			if err := os.WriteFile(i.FreeBSDCrontab, []byte(updated), 0o644); err != nil {
+				return err
+			}
+			fmt.Fprintf(out, "updated %s\n", i.FreeBSDCrontab)
+		}
+		return nil
+	}
 	names := []string{"jealous-vault"}
 	if i.Job != "" && i.Job != "default" {
 		names = append(names, "jealous-vault-"+i.Job)
@@ -174,6 +209,38 @@ func cronSchedule(calendar string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("cannot convert schedule %q to cron", calendar)
+}
+
+// replaceCronBlock removes an earlier block for name and appends the new one.
+func replaceCronBlock(existing, name, block string) string {
+	cleaned := stripCronBlock(existing, name)
+	if cleaned != "" && !strings.HasSuffix(cleaned, "\n") {
+		cleaned += "\n"
+	}
+	return cleaned + block
+}
+
+// stripCronBlock drops the "# BEGIN name" ... "# END name" section.
+func stripCronBlock(existing, name string) string {
+	begin := "# BEGIN " + name
+	end := "# END " + name
+	var out strings.Builder
+	skip := false
+	for _, line := range strings.SplitAfter(existing, "\n") {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == begin:
+			skip = true
+			continue
+		case trimmed == end:
+			skip = false
+			continue
+		case skip:
+			continue
+		}
+		out.WriteString(line)
+	}
+	return out.String()
 }
 
 // normalizeCronField drops leading zeros: cron accepts them, humans do not.

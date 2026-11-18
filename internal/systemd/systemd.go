@@ -40,20 +40,21 @@ const CheckCalendar = "Sun *-*-* 04:30:00"
 
 // Installer writes units and asks systemctl to load them.
 type Installer struct {
-	BinaryPath   string
-	ConfigPath   string
-	Job          string
-	UnitDir      string
-	Systemctl    string
-	Init         string
-	RCUpdate     string
-	RCService    string
-	PeriodicDir  string
-	LogrotateDir string
-	CronDir      string
-	SkipStart    bool
-	Out          io.Writer
-	Log          *slog.Logger
+	BinaryPath     string
+	ConfigPath     string
+	Job            string
+	UnitDir        string
+	Systemctl      string
+	Init           string
+	RCUpdate       string
+	RCService      string
+	PeriodicDir    string
+	LogrotateDir   string
+	CronDir        string
+	FreeBSDCrontab string
+	SkipStart      bool
+	Out            io.Writer
+	Log            *slog.Logger
 }
 
 type unitNames struct {
@@ -459,6 +460,9 @@ func (i *Installer) defaults() {
 	}
 	if i.CronDir == "" {
 		i.CronDir = "/etc/cron.d"
+	}
+	if i.FreeBSDCrontab == "" {
+		i.FreeBSDCrontab = "/etc/crontab"
 	}
 }
 
