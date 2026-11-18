@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/trigger"
 )
 
 // Entry is one line of the audit journal.
@@ -24,6 +26,9 @@ type Entry struct {
 	User     string    `json:"user"`
 	UID      int       `json:"uid"`
 	Host     string    `json:"host"`
+	Source   string    `json:"source,omitempty"`
+	Unit     string    `json:"unit,omitempty"`
+	Trigger  string    `json:"trigger,omitempty"`
 	Snapshot string    `json:"snapshot,omitempty"`
 	Target   string    `json:"target,omitempty"`
 	Files    int64     `json:"files,omitempty"`
@@ -60,6 +65,16 @@ func (l Logger) Write(e Entry) error {
 	}
 	if e.Result == "" {
 		e.Result = "success"
+	}
+	if e.Source == "" {
+		info := trigger.Detect()
+		e.Source = info.Source
+		if e.Unit == "" {
+			e.Unit = info.Unit
+		}
+		if e.Trigger == "" {
+			e.Trigger = info.Trigger
+		}
 	}
 
 	line, err := json.Marshal(e)
