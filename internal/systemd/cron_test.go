@@ -66,19 +66,17 @@ func TestInstallCron(t *testing.T) {
 	text := string(body)
 	for _, want := range []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"30 3 * * * root",
-		"backup --config",
-		"15 0,6,12,18 * * * root",
-		"freshness --config",
-		"30 4 * * 0 root",
-		"check --config",
+		"17 * * * * root",
+		"tick --config",
 		"0 5 * * 0 root",
 		"test-restore --config",
-		"sleep $(awk",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("cron file does not contain %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, " backup --config ") || strings.Contains(text, " check --config ") {
+		t.Errorf("cron file still schedules individual commands:\n%s", text)
 	}
 
 	info, err := os.Stat(path)

@@ -30,9 +30,9 @@ func (i *Installer) installCron(cfg *config.Config, out io.Writer) error {
 		command  string
 		jitter   time.Duration
 	}{
-		{cfg.Schedule.OnCalendar, "backup", cfg.RandomizedDelay},
-		{checkCalendar, "check", 0},
-		{cfg.Freshness.Schedule, "freshness", 0},
+		// One tick per hour: it decides what is due from the config and the
+		// state, so the cron entry does not have to know the schedule.
+		{"*-*-* *:17:00", "tick", 0},
 	}
 	if cfg.Verify.Enabled {
 		entries = append(entries, struct {

@@ -49,6 +49,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 		freshnessCommand(ctx),
 		statusCommand(ctx),
 		historyCommand(),
+		tickCommand(ctx),
 		recoveryKitCommand(ctx),
 		versionCommand(ctx),
 	)
@@ -380,6 +381,13 @@ func historyCommand() *cobra.Command {
 			c.Flags().Int("limit", 20, "number of runs to show, 0 for all")
 			c.Flags().Bool("json", false, "print the history as JSON")
 		})
+}
+
+func tickCommand(ctx context.Context) *cobra.Command {
+	return legacyCommand(ctx, "tick", "run whatever is due and exit, for cron and simple init loops", cmdTick, func(c *cobra.Command) {
+		configFlag(c)
+		verboseFlag(c)
+	})
 }
 
 func recoveryKitCommand(ctx context.Context) *cobra.Command {

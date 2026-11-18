@@ -35,6 +35,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
+	"github.com/mnnoee/jealous-vault/internal/schedule"
 	"github.com/mnnoee/jealous-vault/internal/service"
 	"github.com/mnnoee/jealous-vault/internal/sftp"
 	"github.com/mnnoee/jealous-vault/internal/state"
@@ -1745,6 +1746,112 @@ func freeBytes(path string) (int64, error) {
 		return 0, err
 	}
 	return int64(stat.Bavail) * int64(stat.Bsize), nil
+}
+
+// cmdTick is the portable scheduler entry point: cron or a small init loop
+// wakes it up, it checks the schedules and the state, runs what is due and
+// exits. No long-running process is needed.
+func cmdTick(ctx context.Context, args []string) error {
+	fs := newFlagSet("tick")
+	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
+	verbose := fs.Bool("verbose", false, "debug logging")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("unexpected arguments: %s", strings.Join(fs.Args(), " "))
+	}
+
+	cfg, err := loadConfig(*configPath)
+	if err != nil {
+		return err
+	}
+	if err := prepare(cfg); err != nil {
+		return err
+	}
+	runLock, busy, err := acquireRunLock(cfg, "tick")
+	if err != nil {
+		return err
+	}
+	if busy {
+		return nil
+	}
+	defer runLock.Release()
+
+	log := newLogger(*verbose)
+	store := state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile}
+	st, err := store.Load()
+	if err != nil {
+		return err
+	}
+	now := time.Now()
+	var errs []error
+	ran := false
+
+	if due, at, err := schedule.Due(cfg.Schedule.OnCalendar, lastFinished(st.LastSuccess), now); err != nil {
+		errs = append(errs, fmt.Errorf("backup schedule: %w", err))
+	} else if due {
+		ran = true
+		fmt.Printf("tick: backup due since %s\n", at.Format(time.RFC3339))
+		if _, err := runner.New(cfg, log, os.Stderr).Backup(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("backup: %w", err))
+		}
+	}
+
+	if due, at, err := schedule.Due(systemd.CheckCalendar, lastFinished(st.LastCheck), now); err != nil {
+		errs = append(errs, fmt.Errorf("check schedule: %w", err))
+	} else if due {
+		ran = true
+		fmt.Printf("tick: check due since %s\n", at.Format(time.RFC3339))
+		if _, err := runner.New(cfg, log, os.Stderr).Check(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("check: %w", err))
+		}
+	}
+
+	// Freshness has no run history, so the last run is kept in a stamp file.
+	stamp := filepath.Join(filepath.Dir(cfg.StateFile), "freshness.stamp")
+	if due, at, err := schedule.Due(cfg.Freshness.Schedule, readStamp(stamp), now); err != nil {
+		errs = append(errs, fmt.Errorf("freshness schedule: %w", err))
+	} else if due {
+		ran = true
+		fmt.Printf("tick: freshness due since %s\n", at.Format(time.RFC3339))
+		if err := cmdFreshness(ctx, []string{"--config", cfg.Path}); err != nil {
+			errs = append(errs, fmt.Errorf("freshness: %w", err))
+		} else if err := writeStamp(stamp, now); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if !ran {
+		fmt.Println("tick: nothing due")
+	}
+	return errors.Join(errs...)
+}
+
+func lastFinished(run *state.Run) time.Time {
+	if run == nil {
+		return time.Time{}
+	}
+	return run.FinishedAt
+}
+
+func readStamp(path string) time.Time {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return time.Time{}
+	}
+	stamp, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return time.Time{}
+	}
+	return stamp
+}
+
+func writeStamp(path string, now time.Time) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(now.Format(time.RFC3339)+"\n"), 0o600)
 }
 
 func cmdCheck(ctx context.Context, args []string) error {

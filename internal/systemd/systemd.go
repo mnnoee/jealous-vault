@@ -35,7 +35,8 @@ const (
 	CopyTimer        = "jealous-vault-copy.timer"
 )
 
-const checkCalendar = "Sun *-*-* 04:30:00"
+// CheckCalendar is the weekly repository check schedule.
+const CheckCalendar = "Sun *-*-* 04:30:00"
 
 // Installer writes units and asks systemctl to load them.
 type Installer struct {
@@ -195,11 +196,15 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	switch i.initSystem() {
 	case "openrc":
 		return i.installOpenRC(ctx, cfg, out)
+	case "sysvinit":
+		return i.installSysVInit(ctx, cfg, out)
+	case "runit":
+		return i.installRunit(cfg, out)
 	case "cron":
 		return i.installCron(cfg, out)
 	case "systemd":
 	default:
-		return errors.New("no systemd, OpenRC or cron found, cannot install a scheduler")
+		return errors.New("no systemd, OpenRC, sysvinit, runit or cron found, cannot install a scheduler")
 	}
 
 	n := i.names()
@@ -281,6 +286,10 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	switch i.initSystem() {
 	case "openrc":
 		return i.uninstallOpenRC(out)
+	case "sysvinit":
+		return i.uninstallSysVInit(out)
+	case "runit":
+		return i.uninstallRunit(out)
 	case "cron":
 		return i.uninstallCron(out)
 	}
@@ -462,6 +471,15 @@ func (i *Installer) initSystem() string {
 	}
 	if _, err := exec.LookPath(i.RCUpdate); err == nil {
 		return "openrc"
+	}
+	if _, err := exec.LookPath("update-rc.d"); err == nil {
+		return "sysvinit"
+	}
+	if _, err := exec.LookPath("runsvdir"); err == nil {
+		return "runit"
+	}
+	if info, err := os.Stat("/etc/sv"); err == nil && info.IsDir() {
+		return "runit"
 	}
 	if info, err := os.Stat(i.CronDir); err == nil && info.IsDir() {
 		return "cron"
@@ -646,7 +664,7 @@ Unit=%s
 
 [Install]
 WantedBy=timers.target
-`, checkCalendar, service)
+`, CheckCalendar, service)
 }
 
 func freshnessService(binary, configPath string) string {
