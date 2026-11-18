@@ -192,6 +192,41 @@ func TestCheckRecordsSuccess(t *testing.T) {
 	}
 }
 
+func TestCheckClearsStaleLocksBeforeChecking(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args.log")
+	script := writeScript(t, `printf '%s\n' "$*" >> `+argsFile+`
+case "$1" in
+unlock)
+  exit 0
+  ;;
+check)
+  exit 0
+  ;;
+esac
+exit 1
+`)
+
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = script
+
+	r := New(cfg, discardLogger(), io.Discard)
+	if _, err := r.Check(context.Background()); err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	data, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	unlock := strings.Index(text, "unlock")
+	check := strings.Index(text, "check")
+	if unlock < 0 || check < 0 || unlock > check {
+		t.Fatalf("unlock must run before check: %q", text)
+	}
+}
+
 func TestBackupRetriesAfterLock(t *testing.T) {
 	dir := t.TempDir()
 	argsFile := filepath.Join(dir, "args.log")

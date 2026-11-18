@@ -226,6 +226,7 @@ func (r *Runner) Check(ctx context.Context) (state.Run, error) {
 	}
 
 	r.log.Info("check started", "repository", r.cfg.RedactedRepository())
+	r.clearStaleLocks(ctx, "check")
 	checkCtx, cancel := context.WithTimeout(ctx, r.cfg.CheckTimeout)
 	err := r.restic.Check(checkCtx, r.cfg.Check.ReadDataSubset)
 	cancel()
@@ -245,10 +246,22 @@ func (r *Runner) retention(ctx context.Context) error {
 	defer cancel()
 
 	r.log.Info("retention started", "prune", r.cfg.Retention.Prune)
+	r.clearStaleLocks(retentionCtx, "retention")
 	if err := r.restic.Forget(retentionCtx, r.cfg.RetentionArgs(), r.cfg.Retention.Prune); err != nil {
 		return fmt.Errorf("retention: %w", err)
 	}
 	return nil
+}
+
+// clearStaleLocks removes locks left by crashed runs before an operation that
+// needs an exclusive lock. Restic's --retry-lock waits for live locks but does
+// not clean orphans, so without this a stale lock turns into a 30 minute wait.
+func (r *Runner) clearStaleLocks(ctx context.Context, operation string) {
+	unlockCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	if err := r.restic.Unlock(unlockCtx); err != nil {
+		r.log.Warn("cannot remove stale locks", "operation", operation, "error", err)
+	}
 }
 
 func (r *Runner) finish(ctx context.Context, run state.Run, warnings []string, runErr error) (state.Run, error) {
