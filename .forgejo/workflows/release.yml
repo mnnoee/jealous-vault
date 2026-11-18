@@ -15,6 +15,9 @@ jobs:
       image: jealous-vault-ci:1
     env:
       GOTOOLCHAIN: local
+      # v1, not v3: release binaries must run on old x86-64 VPS CPUs.
+      # v3 caused SIGILL on larch. Keep the old-CPU smoke test below.
+      GOAMD64: v1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -37,6 +40,19 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
             go build -trimpath -ldflags "${LDFLAGS}" \
             -o dist/jealous-vault-linux-arm64 ./cmd/jealous-vault
+
+      - name: amd64 v1 smoke on qemu64
+        run: |
+          set -eu
+          if command -v qemu-x86_64-static >/dev/null 2>&1; then
+            QEMU=qemu-x86_64-static
+          elif command -v qemu-x86_64 >/dev/null 2>&1; then
+            QEMU=qemu-x86_64
+          else
+            echo "qemu-user is missing; rebuild the jealous-vault-ci:1 image"
+            exit 1
+          fi
+          "$QEMU" -cpu qemu64 dist/jealous-vault-linux-amd64 version
 
       - name: licenses
         run: |
