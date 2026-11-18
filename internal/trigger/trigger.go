@@ -9,6 +9,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"os/user"
 	"strconv"
 	"strings"
 	"sync"
@@ -24,6 +25,11 @@ type Info struct {
 	// Trigger names the timer for scheduled runs, "manual" for a manual
 	// systemctl start, "cron", "ssh:<addr>" or "tty".
 	Trigger string `json:"trigger,omitempty"`
+	// Invoker is the human behind sudo, doas or su. Empty for timer and cron
+	// runs, where there is no human to blame.
+	Invoker string `json:"invoker,omitempty"`
+	// InvokerUID is the uid of Invoker.
+	InvokerUID int `json:"invoker_uid,omitempty"`
 }
 
 var (
@@ -50,7 +56,91 @@ func detect() Info {
 	if info.Source == "systemd" && info.Unit != "" {
 		info.Trigger = systemdTrigger(info.Unit)
 	}
+	info.Invoker, info.InvokerUID = detectInvoker(info.Source)
 	return info
+}
+
+// detectInvoker finds the person on whose behalf the agent runs. The effective
+// credentials stay in user/uid; this is only the human behind sudo, doas or su.
+func detectInvoker(source string) (string, int) {
+	if name := os.Getenv("SUDO_USER"); name != "" {
+		return name, uidFor(name, os.Getenv("SUDO_UID"))
+	}
+	if name := os.Getenv("DOAS_USER"); name != "" {
+		return name, uidFor(name, "")
+	}
+	// pam_loginuid survives sudo and su, so it points at the login user even
+	// when the current process is root.
+	if uid := parseLoginuid(readFile("/proc/self/loginuid")); uid > 0 {
+		return userName(uid), uid
+	}
+	if source == "shell" {
+		for _, env := range ancestorEnviron(os.Getpid(), 4) {
+			if name := env["SUDO_USER"]; name != "" {
+				return name, uidFor(name, env["SUDO_UID"])
+			}
+			for _, key := range []string{"USER", "LOGNAME"} {
+				if name := env[key]; name != "" && name != "root" {
+					return name, uidFor(name, "")
+				}
+			}
+		}
+	}
+	return "", 0
+}
+
+func parseLoginuid(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	uid, err := strconv.Atoi(value)
+	if err != nil || uid < 0 || uid == 4294967295 {
+		return 0
+	}
+	return uid
+}
+
+func uidFor(name, hint string) int {
+	if hint != "" {
+		if uid, err := strconv.Atoi(hint); err == nil {
+			return uid
+		}
+	}
+	if u, err := user.Lookup(name); err == nil {
+		if uid, err := strconv.Atoi(u.Uid); err == nil {
+			return uid
+		}
+	}
+	return 0
+}
+
+func userName(uid int) string {
+	if u, err := user.LookupId(strconv.Itoa(uid)); err == nil {
+		return u.Username
+	}
+	return "uid:" + strconv.Itoa(uid)
+}
+
+// ancestorEnviron returns the environments of the parent processes, nearest
+// first.
+func ancestorEnviron(pid int, depth int) []map[string]string {
+	var result []map[string]string
+	for i := 0; i < depth; i++ {
+		pid = parentPID(pid)
+		if pid <= 1 {
+			break
+		}
+		env := make(map[string]string)
+		for _, entry := range strings.Split(readFile("/proc/"+strconv.Itoa(pid)+"/environ"), "\x00") {
+			key, value, ok := strings.Cut(entry, "=")
+			if ok {
+				env[key] = value
+			}
+		}
+		result = append(result, env)
+	}
+	return result
 }
 
 // classify is the pure part of the detection, kept separate for tests.

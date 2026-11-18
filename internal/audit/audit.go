@@ -21,20 +21,22 @@ import (
 
 // Entry is one line of the audit journal.
 type Entry struct {
-	Time     time.Time `json:"ts"`
-	Action   string    `json:"action"`
-	User     string    `json:"user"`
-	UID      int       `json:"uid"`
-	Host     string    `json:"host"`
-	Source   string    `json:"source,omitempty"`
-	Unit     string    `json:"unit,omitempty"`
-	Trigger  string    `json:"trigger,omitempty"`
-	Snapshot string    `json:"snapshot,omitempty"`
-	Target   string    `json:"target,omitempty"`
-	Files    int64     `json:"files,omitempty"`
-	Bytes    int64     `json:"bytes,omitempty"`
-	Result   string    `json:"result"`
-	Error    string    `json:"error,omitempty"`
+	Time       time.Time `json:"ts"`
+	Action     string    `json:"action"`
+	User       string    `json:"user"`
+	UID        int       `json:"uid"`
+	Host       string    `json:"host"`
+	Source     string    `json:"source,omitempty"`
+	Unit       string    `json:"unit,omitempty"`
+	Trigger    string    `json:"trigger,omitempty"`
+	Invoker    string    `json:"invoker,omitempty"`
+	InvokerUID int       `json:"invoker_uid,omitempty"`
+	Snapshot   string    `json:"snapshot,omitempty"`
+	Target     string    `json:"target,omitempty"`
+	Files      int64     `json:"files,omitempty"`
+	Bytes      int64     `json:"bytes,omitempty"`
+	Result     string    `json:"result"`
+	Error      string    `json:"error,omitempty"`
 }
 
 // Logger appends entries to Path. An empty Path disables the journal.
@@ -74,6 +76,12 @@ func (l Logger) Write(e Entry) error {
 		}
 		if e.Trigger == "" {
 			e.Trigger = info.Trigger
+		}
+		if e.Invoker == "" {
+			e.Invoker = info.Invoker
+		}
+		if e.InvokerUID == 0 {
+			e.InvokerUID = info.InvokerUID
 		}
 	}
 

@@ -71,6 +71,31 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestParseLoginuid(t *testing.T) {
+	cases := map[string]int{
+		"1000\n":     1000,
+		"0":          0,
+		"":           0,
+		"4294967295": 0,
+		"junk":       0,
+	}
+	for value, want := range cases {
+		if got := parseLoginuid(value); got != want {
+			t.Errorf("parseLoginuid(%q) = %d, want %d", value, got, want)
+		}
+	}
+}
+
+func TestDetectInvokerSudo(t *testing.T) {
+	t.Setenv("SUDO_USER", "mnnoee")
+	t.Setenv("SUDO_UID", "1000")
+	t.Setenv("DOAS_USER", "")
+	name, uid := detectInvoker("shell")
+	if name != "mnnoee" || uid != 1000 {
+		t.Fatalf("detectInvoker = %q/%d, want mnnoee/1000", name, uid)
+	}
+}
+
 func TestRemoteHost(t *testing.T) {
 	if got := remoteHost("198.51.100.7 40000 10.0.0.1 22"); got != "198.51.100.7" {
 		t.Fatalf("remoteHost = %q", got)
