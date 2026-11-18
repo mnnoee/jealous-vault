@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -31,13 +32,20 @@ func TestTelegramMultipleChats(t *testing.T) {
 	type sent struct {
 		chatID string
 		thread string
+		mode   string
+		text   string
 	}
 	var messages []sent
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
 			t.Errorf("parse form: %v", err)
 		}
-		messages = append(messages, sent{chatID: r.FormValue("chat_id"), thread: r.FormValue("message_thread_id")})
+		messages = append(messages, sent{
+			chatID: r.FormValue("chat_id"),
+			thread: r.FormValue("message_thread_id"),
+			mode:   r.FormValue("parse_mode"),
+			text:   r.FormValue("text"),
+		})
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
@@ -62,5 +70,13 @@ func TestTelegramMultipleChats(t *testing.T) {
 	}
 	if messages[1].chatID != "-5365208231" || messages[1].thread != "42" {
 		t.Errorf("second message = %+v", messages[1])
+	}
+	if messages[0].mode != "HTML" {
+		t.Errorf("parse mode = %q", messages[0].mode)
+	}
+	for _, want := range []string{"<b>jv-vm</b>", "<pre>disk full</pre>"} {
+		if !strings.Contains(messages[0].text, want) {
+			t.Errorf("telegram text does not contain %q:\n%s", want, messages[0].text)
+		}
 	}
 }

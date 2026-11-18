@@ -232,7 +232,11 @@ func (n *Notifier) telegram(ctx context.Context, ev Event) error {
 		if chat.ThreadID > 0 {
 			form.Set("message_thread_id", strconv.Itoa(chat.ThreadID))
 		}
-		form.Set("text", truncate(ev.Text(), 4000))
+		text, parseMode := ev.TelegramText()
+		form.Set("text", text)
+		if parseMode != "" {
+			form.Set("parse_mode", parseMode)
+		}
 		form.Set("disable_web_page_preview", "true")
 		endpoint := n.telegramAPIBase + "/bot" + n.telegramToken + "/sendMessage"
 

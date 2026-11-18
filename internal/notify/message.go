@@ -6,6 +6,7 @@ package notify
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"time"
@@ -79,6 +80,65 @@ func (e Event) Text() string {
 		fmt.Fprintf(&b, "\nSuppressed: %d earlier alerts\n", e.Suppressed)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// TelegramText renders the event for Telegram's HTML parse mode. It returns
+// the text and the parse mode; when the marked-up message is too long it falls
+// back to plain text so Telegram never sees a broken HTML tag.
+func (e Event) TelegramText() (string, string) {
+	if e.Error != "" && e.ErrorSummary == "" {
+		e.Normalize()
+	}
+	esc := html.EscapeString
+	var b strings.Builder
+	fmt.Fprintf(&b, "[JealousVault] %s %s on <b>%s</b>\n\n", esc(e.Event), esc(e.Status), esc(e.Host))
+
+	field := func(label, value string) {
+		if value != "" {
+			fmt.Fprintf(&b, "%s: %s\n", label, value)
+		}
+	}
+	field("Host", "<b>"+esc(e.Host)+"</b>")
+	if !e.Time.IsZero() {
+		field("Time", "<b>"+esc(e.Time.Format("2006-01-02 15:04:05 MST"))+"</b>")
+	}
+	if e.DurationSeconds > 0 {
+		field("Duration", "<b>"+esc(time.Duration(e.DurationSeconds*float64(time.Second)).Round(time.Second).String())+"</b>")
+	}
+	field("Snapshot", esc(shortID(e.Snapshot)))
+	if e.FilesNew > 0 || e.FilesChanged > 0 {
+		field("Files", esc(fmt.Sprintf("%d new, %d changed", e.FilesNew, e.FilesChanged)))
+	}
+	if e.BytesAdded > 0 {
+		field("Added", esc(humanBytes(e.BytesAdded)))
+	}
+
+	if e.ErrorSummary != "" {
+		fmt.Fprintf(&b, "\nError:\n<pre>%s</pre>\n", esc(truncate(e.ErrorSummary, 1200)))
+		field("Class", "<code>"+esc(e.ErrorClass)+"</code>")
+		if e.ErrorCode != 0 {
+			field("Code", "<code>"+esc(strconv.Itoa(e.ErrorCode))+"</code>")
+		}
+		field("Detail", "<code>"+esc(truncate(e.ErrorDetail, 1200))+"</code>")
+		field("Action", esc(e.Action))
+	} else if e.Error != "" {
+		fmt.Fprintf(&b, "\nError:\n<pre>%s</pre>\n", esc(truncate(e.Error, 1200)))
+	}
+
+	if len(e.Warnings) > 0 {
+		b.WriteString("\n")
+		for _, warning := range e.Warnings {
+			fmt.Fprintf(&b, "Warning:\n<pre>%s</pre>\n", esc(truncate(warning, 800)))
+		}
+	}
+	if e.Suppressed > 0 {
+		fmt.Fprintf(&b, "\nSuppressed: %d earlier alerts\n", e.Suppressed)
+	}
+	text := strings.TrimSpace(b.String())
+	if len(text) > 4000 {
+		return truncate(e.Text(), 4000), ""
+	}
+	return text, "HTML"
 }
 
 func shortID(id string) string {

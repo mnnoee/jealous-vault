@@ -46,6 +46,38 @@ func TestNormalizeResticError(t *testing.T) {
 	}
 }
 
+func TestTelegramHTMLFormatting(t *testing.T) {
+	ev := Event{
+		Event:           "backup",
+		Status:          "failed",
+		Host:            "node<1>",
+		Time:            time.Date(2026, 11, 17, 16, 26, 0, 0, time.UTC),
+		DurationSeconds: 12,
+		Error:           resticMissingRepoError,
+		Warnings:        []string{"retention failed: <bad>"},
+	}
+	text, mode := ev.TelegramText()
+	if mode != "HTML" {
+		t.Fatalf("mode = %q", mode)
+	}
+	for _, want := range []string{
+		"<b>node&lt;1&gt;</b>",
+		"<b>2026-11-17 16:26:00 UTC</b>",
+		"<b>12s</b>",
+		"<pre>",
+		"<code>repository.missing</code>",
+		"<code>10</code>",
+		"retention failed: &lt;bad&gt;",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("telegram text does not contain %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "<bad>") {
+		t.Errorf("untrusted HTML was not escaped:\n%s", text)
+	}
+}
+
 func TestDedupGroupsByErrorClass(t *testing.T) {
 	now := time.Date(2026, 11, 17, 16, 26, 0, 0, time.UTC)
 	l := newLimiter(filepath.Join(t.TempDir(), "alerts.json"), func() time.Time { return now }, 3*time.Hour, 6*time.Hour)
