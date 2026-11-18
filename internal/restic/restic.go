@@ -38,6 +38,10 @@ type Options struct {
 	Output   io.Writer
 }
 
+// lockRetry makes exclusive operations wait for another host instead of
+// failing immediately. The surrounding context still bounds the total wait.
+const lockRetry = "30m"
+
 // Client runs restic with a fixed repository and environment.
 type Client struct {
 	binary       string
@@ -332,6 +336,7 @@ func (c *Client) Check(ctx context.Context, readDataSubset string) error {
 	if readDataSubset != "" {
 		args = append(args, "--read-data-subset", readDataSubset)
 	}
+	args = append(args, "--retry-lock", lockRetry)
 
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
@@ -354,6 +359,7 @@ func (c *Client) Forget(ctx context.Context, policy []string, prune bool) error 
 	if prune {
 		args = append(args, "--prune")
 	}
+	args = append(args, "--retry-lock", lockRetry)
 
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
@@ -396,6 +402,7 @@ func (c *Client) ForgetSnapshot(ctx context.Context, snapshot string, prune bool
 	if prune {
 		args = append(args, "--prune")
 	}
+	args = append(args, "--retry-lock", lockRetry)
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
 	var stderr tailBuffer

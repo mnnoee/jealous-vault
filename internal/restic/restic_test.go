@@ -205,8 +205,14 @@ func TestCheckAndForget(t *testing.T) {
 	if !strings.Contains(args, "check --read-data-subset 5%") {
 		t.Errorf("check args = %q", args)
 	}
+	if !strings.Contains(args, "check --read-data-subset 5% --retry-lock 30m") {
+		t.Errorf("check must wait for a shared repository: %q", args)
+	}
 	if !strings.Contains(args, "forget --keep-last 3 --prune") {
 		t.Errorf("forget args = %q", args)
+	}
+	if !strings.Contains(args, "forget --keep-last 3 --prune --retry-lock 30m") {
+		t.Errorf("forget must wait for a shared repository: %q", args)
 	}
 }
 
