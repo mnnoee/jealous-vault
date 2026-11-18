@@ -28,6 +28,7 @@ func testConfig(t *testing.T, dir string) *config.Config {
 	cfg.CheckTimeout = time.Minute
 	cfg.NotifyTimeout = time.Second
 	cfg.StateFile = filepath.Join(dir, "state.json")
+	cfg.AuditFile = filepath.Join(dir, "audit.jsonl")
 	cfg.Retention = config.Retention{}
 	return cfg
 }
@@ -94,6 +95,16 @@ fi
 	}
 	if !strings.Contains(string(args), "backup --json --host node-1 /etc") {
 		t.Errorf("restic args = %q", args)
+	}
+
+	auditBody, err := os.ReadFile(cfg.AuditFile)
+	if err != nil {
+		t.Fatalf("audit journal missing: %v", err)
+	}
+	for _, want := range []string{`"action":"backup"`, `"snapshot":"snap123"`, `"result":"success"`} {
+		if !strings.Contains(string(auditBody), want) {
+			t.Errorf("audit entry does not contain %q: %s", want, auditBody)
+		}
 	}
 }
 
@@ -266,6 +277,31 @@ esac
 	}
 	if got := strings.Count(string(args), "backup --json"); got != 2 {
 		t.Errorf("backup calls = %d, want 2: %q", got, args)
+	}
+}
+
+func TestBackupAttemptTimeout(t *testing.T) {
+	dir := t.TempDir()
+	script := writeScript(t, `exec sleep 30
+`)
+
+	cfg := testConfig(t, dir)
+	cfg.ResticBinary = script
+	cfg.Backup.Attempts = 1
+	cfg.BackupAttemptTimeout = 150 * time.Millisecond
+	cfg.BackupTimeout = 10 * time.Second
+
+	start := time.Now()
+	r := New(cfg, discardLogger(), io.Discard)
+	_, err := r.Backup(context.Background())
+	if err == nil {
+		t.Fatal("hung restic was not interrupted")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %v, want a timeout message", err)
+	}
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Fatalf("timeout took %s, the attempt was not interrupted", elapsed)
 	}
 }
 

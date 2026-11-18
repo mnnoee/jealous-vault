@@ -20,6 +20,25 @@ func writeFile(t *testing.T, dir, name, body string) string {
 	return path
 }
 
+func TestAuditFileMustBeAbsolute(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFile(t, dir, "config.toml", `
+host = "test-host"
+state_file = "/tmp/state.json"
+audit_file = "relative/audit.jsonl"
+
+[repository]
+url = "local:/srv/backup"
+password_file = "/tmp/restic.pass"
+
+[backup]
+paths = ["/etc"]
+`)
+	if _, err := Load(path); err == nil {
+		t.Fatal("relative audit_file was accepted")
+	}
+}
+
 func TestLoadDefaults(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFile(t, dir, "config.toml", `
@@ -50,6 +69,9 @@ paths = ["/etc"]
 	}
 	if cfg.AlertsFile != "/tmp/alerts.json" {
 		t.Errorf("alerts file = %q, want /tmp/alerts.json", cfg.AlertsFile)
+	}
+	if cfg.AuditFile != DefaultAuditFile {
+		t.Errorf("audit file = %q, want %q", cfg.AuditFile, DefaultAuditFile)
 	}
 	if cfg.BackupTimeout != 6*time.Hour {
 		t.Errorf("backup timeout = %s, want 6h", cfg.BackupTimeout)

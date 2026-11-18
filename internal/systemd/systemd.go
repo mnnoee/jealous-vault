@@ -39,18 +39,20 @@ const checkCalendar = "Sun *-*-* 04:30:00"
 
 // Installer writes units and asks systemctl to load them.
 type Installer struct {
-	BinaryPath  string
-	ConfigPath  string
-	Job         string
-	UnitDir     string
-	Systemctl   string
-	Init        string
-	RCUpdate    string
-	RCService   string
-	PeriodicDir string
-	SkipStart   bool
-	Out         io.Writer
-	Log         *slog.Logger
+	BinaryPath   string
+	ConfigPath   string
+	Job          string
+	UnitDir      string
+	Systemctl    string
+	Init         string
+	RCUpdate     string
+	RCService    string
+	PeriodicDir  string
+	LogrotateDir string
+	CronDir      string
+	SkipStart    bool
+	Out          io.Writer
+	Log          *slog.Logger
 }
 
 type unitNames struct {
@@ -104,6 +106,42 @@ func ProxmoxTimerName(job string) string { return unitName("proxmox", job, ".tim
 // CopyTimerName returns the copy timer unit for one job.
 func CopyTimerName(job string) string { return unitName("copy", job, ".timer") }
 
+// installLogrotate keeps the audit journal bounded. The agent appends to it
+// from every critical action, so rotation is left to logrotate.
+func (i *Installer) installLogrotate(cfg *config.Config, out io.Writer) error {
+	if cfg.AuditFile == "" {
+		return nil
+	}
+	info, err := os.Stat(i.LogrotateDir)
+	if err != nil || !info.IsDir() {
+		return nil
+	}
+	probe, err := os.CreateTemp(i.LogrotateDir, ".probe-*")
+	if err != nil {
+		// Unprivileged runs cannot write /etc/logrotate.d; installation as
+		// root can, and a missing rotation config must not fail the install.
+		return nil
+	}
+	probeName := probe.Name()
+	probe.Close()
+	_ = os.Remove(probeName)
+	body := cfg.AuditFile + ` {
+    weekly
+    rotate 12
+    compress
+    missingok
+    notifempty
+    create 0600 root root
+}
+`
+	path := filepath.Join(i.LogrotateDir, "jealous-vault")
+	if err := writeFile(path, []byte(body)); err != nil {
+		return err
+	}
+	fmt.Fprintf(out, "wrote %s\n", path)
+	return nil
+}
+
 func (i *Installer) names() unitNames {
 	job := i.Job
 	return unitNames{
@@ -150,13 +188,18 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	if err := i.installBinary(); err != nil {
 		return err
 	}
+	if err := i.installLogrotate(cfg, out); err != nil {
+		return err
+	}
 
 	switch i.initSystem() {
 	case "openrc":
 		return i.installOpenRC(ctx, cfg, out)
+	case "cron":
+		return i.installCron(cfg, out)
 	case "systemd":
 	default:
-		return errors.New("neither systemctl nor rc-update found, cannot install services")
+		return errors.New("no systemd, OpenRC or cron found, cannot install a scheduler")
 	}
 
 	n := i.names()
@@ -235,8 +278,11 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 	if out == nil {
 		out = io.Discard
 	}
-	if i.initSystem() == "openrc" {
+	switch i.initSystem() {
+	case "openrc":
 		return i.uninstallOpenRC(out)
+	case "cron":
+		return i.uninstallCron(out)
 	}
 
 	n := i.names()
@@ -399,6 +445,12 @@ func (i *Installer) defaults() {
 	if i.PeriodicDir == "" {
 		i.PeriodicDir = "/etc/periodic"
 	}
+	if i.LogrotateDir == "" {
+		i.LogrotateDir = "/etc/logrotate.d"
+	}
+	if i.CronDir == "" {
+		i.CronDir = "/etc/cron.d"
+	}
 }
 
 func (i *Installer) initSystem() string {
@@ -410,6 +462,15 @@ func (i *Installer) initSystem() string {
 	}
 	if _, err := exec.LookPath(i.RCUpdate); err == nil {
 		return "openrc"
+	}
+	if info, err := os.Stat(i.CronDir); err == nil && info.IsDir() {
+		return "cron"
+	}
+	if _, err := exec.LookPath("cron"); err == nil {
+		return "cron"
+	}
+	if _, err := exec.LookPath("crond"); err == nil {
+		return "cron"
 	}
 	return "unknown"
 }

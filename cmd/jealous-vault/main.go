@@ -23,6 +23,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/mnnoee/jealous-vault/internal/audit"
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/doctor"
 	"github.com/mnnoee/jealous-vault/internal/freshness"
@@ -182,6 +183,20 @@ func loadConfig(path string) (*config.Config, error) {
 	return cfg, nil
 }
 
+// recordAudit appends one critical action to the audit journal. A broken
+// journal is reported but never changes the outcome of the operation itself.
+func recordAudit(cfg *config.Config, log *slog.Logger, entry audit.Entry) {
+	entry.Host = cfg.Host
+	audit.Logger{Path: cfg.AuditFile, Log: log}.Record(entry)
+}
+
+func auditOutcome(err error) (result, message string) {
+	if err == nil {
+		return "success", ""
+	}
+	return "failed", err.Error()
+}
+
 func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 	return restic.New(restic.Options{
 		Binary:       cfg.ResticBinary,
@@ -201,7 +216,15 @@ func prepare(cfg *config.Config) error {
 	if err := cfg.CheckSecretFiles(); err != nil {
 		return err
 	}
-	return sftp.EnsureConfig(cfg)
+	if err := sftp.EnsureConfig(cfg); err != nil {
+		return err
+	}
+	// Best effort: the journal writer reports its own errors, and a read-only
+	// filesystem must not stop a restore.
+	if cfg.AuditFile != "" {
+		_ = os.MkdirAll(filepath.Dir(cfg.AuditFile), 0o750)
+	}
+	return nil
 }
 
 // acquireRunLock returns busy=true when another backup, check or restore is
@@ -346,7 +369,11 @@ func cmdRepoInit(ctx context.Context, args []string) error {
 		return nil
 	}
 	defer runLock.Release()
-	return initRepository(ctx, cfg, newLogger(*verbose))
+	log := newLogger(*verbose)
+	err = initRepository(ctx, cfg, log)
+	result, message := auditOutcome(err)
+	recordAudit(cfg, log, audit.Entry{Action: "repo.init", Result: result, Error: message})
+	return err
 }
 
 func cmdRepoUnlock(ctx context.Context, args []string) error {
@@ -374,7 +401,11 @@ func cmdRepoUnlock(ctx context.Context, args []string) error {
 		return nil
 	}
 	defer runLock.Release()
-	if err := resticClient(cfg, newLogger(*verbose)).Unlock(ctx); err != nil {
+	log := newLogger(*verbose)
+	err = resticClient(cfg, log).Unlock(ctx)
+	result, message := auditOutcome(err)
+	recordAudit(cfg, log, audit.Entry{Action: "repo.unlock", Result: result, Error: message})
+	if err != nil {
 		return err
 	}
 	fmt.Println("stale locks removed")
@@ -469,6 +500,7 @@ func cmdInstall(ctx context.Context, args []string) error {
 	fs := newFlagSet("install")
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	prefix := stringFlag(fs, "prefix", "/usr/local/bin", "directory for the binary")
+	initSystem := stringFlag(fs, "init", "", "scheduler: systemd, openrc or cron, detected when empty")
 	noStart := fs.Bool("no-start", false, "write units but do not start the timers")
 	verbose := fs.Bool("verbose", false, "debug logging")
 	if err := fs.Parse(args); err != nil {
@@ -501,13 +533,17 @@ func cmdInstall(ctx context.Context, args []string) error {
 		BinaryPath: filepath.Join(*prefix, "jealous-vault"),
 		ConfigPath: *configPath,
 		Job:        cfg.Job,
+		Init:       *initSystem,
 		SkipStart:  *noStart,
 		Out:        os.Stdout,
 		Log:        log,
 	}
 	if err := installer.Install(ctx, cfg); err != nil {
+		result, message := auditOutcome(err)
+		recordAudit(cfg, log, audit.Entry{Action: "install", Result: result, Error: message})
 		return err
 	}
+	recordAudit(cfg, log, audit.Entry{Action: "install", Result: "success"})
 
 	fmt.Println()
 	fmt.Println("Next steps:")
@@ -526,6 +562,7 @@ func cmdUninstall(ctx context.Context, args []string) error {
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	prefix := stringFlag(fs, "prefix", "/usr/local/bin", "directory of the binary")
 	job := stringFlag(fs, "job", "", "job name, defaults to the config value")
+	initSystem := stringFlag(fs, "init", "", "scheduler: systemd, openrc or cron, detected when empty")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -544,9 +581,15 @@ func cmdUninstall(ctx context.Context, args []string) error {
 		BinaryPath: filepath.Join(*prefix, "jealous-vault"),
 		ConfigPath: *configPath,
 		Job:        *job,
+		Init:       *initSystem,
 		Out:        os.Stdout,
 	}
-	return installer.Uninstall(ctx)
+	err := installer.Uninstall(ctx)
+	if cfg, loadErr := config.Load(*configPath); loadErr == nil {
+		result, message := auditOutcome(err)
+		recordAudit(cfg, newLogger(false), audit.Entry{Action: "uninstall", Result: result, Error: message})
+	}
+	return err
 }
 
 func cmdBackup(ctx context.Context, args []string) error {
@@ -900,7 +943,8 @@ func cmdRepoDelete(ctx context.Context, args []string) error {
 	}
 	defer runLock.Release()
 
-	client := resticClient(cfg, newLogger(*verbose))
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
 	snapshots, err := client.Snapshots(ctx, "")
 	if err != nil {
 		return err
@@ -911,9 +955,23 @@ func cmdRepoDelete(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("snapshot: %s %s %s\n", snapshot.ShortID, snapshot.Time.Local().Format("2006-01-02 15:04"), snapshot.Hostname)
 	if !*yes {
+		recordAudit(cfg, log, audit.Entry{
+			Action:   "repo.delete",
+			Snapshot: snapshot.ID,
+			Result:   "refused",
+			Error:    "missing --yes",
+		})
 		return errors.New("refusing to delete a snapshot without --yes")
 	}
-	if err := client.ForgetSnapshot(ctx, snapshot.ID, *prune); err != nil {
+	err = client.ForgetSnapshot(ctx, snapshot.ID, *prune)
+	result, message := auditOutcome(err)
+	recordAudit(cfg, log, audit.Entry{
+		Action:   "repo.delete",
+		Snapshot: snapshot.ID,
+		Result:   result,
+		Error:    message,
+	})
+	if err != nil {
 		return err
 	}
 	if *prune {
@@ -985,6 +1043,13 @@ func cmdRepoCopy(ctx context.Context, args []string) error {
 	if notifyErr := notifier.Send(ctx, event); notifyErr != nil {
 		fmt.Fprintf(os.Stderr, "jealous-vault: cannot send copy alert: %v\n", notifyErr)
 	}
+	copyResult, copyError := auditOutcome(err)
+	recordAudit(cfg, log, audit.Entry{
+		Action: "repo.copy",
+		Target: config.RedactURL(cfg.Copy.Repository),
+		Result: copyResult,
+		Error:  copyError,
+	})
 	if err != nil {
 		return err
 	}
@@ -1209,7 +1274,8 @@ func cmdMount(ctx context.Context, args []string) error {
 	if err := prepare(cfg); err != nil {
 		return err
 	}
-	client := resticClient(cfg, newLogger(*verbose))
+	log := newLogger(*verbose)
+	client := resticClient(cfg, log)
 	snapshots, err := client.Snapshots(ctx, "")
 	if err != nil {
 		return err
@@ -1238,7 +1304,19 @@ func cmdMount(ctx context.Context, args []string) error {
 	}
 	fmt.Printf("snapshot %s is available at %s/ids/%s\n", displayID, target, displayID)
 	fmt.Println("press Ctrl-C to unmount")
-	return client.Mount(ctx, target, os.Stdout, os.Stderr)
+	err = client.Mount(ctx, target, os.Stdout, os.Stderr)
+	result, message := auditOutcome(err)
+	if errors.Is(err, context.Canceled) {
+		result, message = "interrupted", "unmounted by signal"
+	}
+	recordAudit(cfg, log, audit.Entry{
+		Action:   "mount",
+		Snapshot: snapshot.ID,
+		Target:   target,
+		Result:   result,
+		Error:    message,
+	})
+	return err
 }
 
 func resolveSnapshot(snapshots []restic.Snapshot, ref, host string) (restic.Snapshot, error) {
@@ -1389,6 +1467,17 @@ func cmdRestore(ctx context.Context, args []string) error {
 	}
 	defer runLock.Release()
 	plan.Host = cfg.Host
+	// Resolve latest to a concrete ID before the audit entry is written: the
+	// journal must say exactly which snapshot was restored.
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		return err
+	}
+	resolved, err := resolveSnapshot(snapshots, plan.Snapshot, cfg.Host)
+	if err != nil {
+		return err
+	}
+	plan.Snapshot = resolved.ID
 	fmt.Print(plan.Describe())
 	if plan.Dangerous() && !*yes {
 		return fmt.Errorf("%w, pass --yes", restore.ErrDangerous)
@@ -1423,31 +1512,33 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 	}
 	finish := func(cause error) error {
 		env["JM_PHASE"] = "post"
-		env["JM_STATUS"] = "failed"
+		if cause == nil {
+			env["JM_STATUS"] = "success"
+		} else {
+			env["JM_STATUS"] = "failed"
+		}
 		hookErr := hooks.Run(ctx, log, event+"-post", postHooks, env)
 		var startErr error
 		if stopped {
 			startErr = service.Run(context.Background(), log, "start", serviceName)
 		}
-		return errors.Join(cause, hookErr, startErr)
+		finalErr := errors.Join(cause, hookErr, startErr)
+		result, message := auditOutcome(finalErr)
+		recordAudit(cfg, log, audit.Entry{
+			Action:   event,
+			Snapshot: plan.Snapshot,
+			Target:   plan.Target,
+			Result:   result,
+			Error:    message,
+		})
+		return finalErr
 	}
 	if err := hooks.Run(ctx, log, event+"-pre", preHooks, env); err != nil {
 		return finish(err)
 	}
 
 	restoreErr := plan.Execute(ctx, resticClient(cfg, log))
-	status := "success"
-	if restoreErr != nil {
-		status = "failed"
-	}
-	env["JM_PHASE"] = "post"
-	env["JM_STATUS"] = status
-	hookErr := hooks.Run(ctx, log, event+"-post", postHooks, env)
-	var startErr error
-	if stopped {
-		startErr = service.Run(context.Background(), log, "start", serviceName)
-	}
-	return errors.Join(restoreErr, hookErr, startErr)
+	return finish(restoreErr)
 }
 
 func cmdTestRestore(ctx context.Context, args []string) error {
@@ -1544,6 +1635,14 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 		if _, err := store.Record(run); err != nil {
 			log.Error("cannot write state", "error", err)
 		}
+		recordAudit(cfg, log, audit.Entry{
+			Time:     run.FinishedAt,
+			Action:   "verify",
+			Snapshot: snapshotID,
+			Target:   target,
+			Result:   status,
+			Error:    run.Error,
+		})
 		if !*noNotify {
 			notifier := notify.New(notify.Options{
 				Webhooks:        cfg.Notify.Webhooks,

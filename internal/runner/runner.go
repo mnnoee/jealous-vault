@@ -7,11 +7,13 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"time"
 
+	"github.com/mnnoee/jealous-vault/internal/audit"
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/dump"
 	"github.com/mnnoee/jealous-vault/internal/hooks"
@@ -143,15 +145,16 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 // backupOptions returns the restic backup flags for this configuration.
 func (r *Runner) backupOptions(dryRun bool) restic.BackupOptions {
 	return restic.BackupOptions{
-		Host:          r.cfg.Host,
-		Paths:         r.cfg.Backup.Paths,
-		Excludes:      r.cfg.Backup.Excludes,
-		Tags:          r.cfg.Backup.Tags,
-		OneFileSystem: r.cfg.Backup.OneFileSystem,
-		DryRun:        dryRun,
-		LimitUpload:   r.cfg.Backup.LimitUpload,
-		Compression:   r.cfg.Backup.Compression,
-		PackSize:      r.cfg.Backup.PackSize,
+		Host:           r.cfg.Host,
+		Paths:          r.cfg.Backup.Paths,
+		Excludes:       r.cfg.Backup.Excludes,
+		Tags:           r.cfg.Backup.Tags,
+		OneFileSystem:  r.cfg.Backup.OneFileSystem,
+		DryRun:         dryRun,
+		LimitUpload:    r.cfg.Backup.LimitUpload,
+		Compression:    r.cfg.Backup.Compression,
+		PackSize:       r.cfg.Backup.PackSize,
+		AttemptTimeout: r.cfg.BackupAttemptTimeout,
 	}
 }
 
@@ -172,6 +175,9 @@ func (r *Runner) backupWithRetry(ctx context.Context, opts restic.BackupOptions,
 		}
 		if ctx.Err() != nil {
 			return summary, err
+		}
+		if opts.AttemptTimeout > 0 && errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("backup attempt timed out after %s: %w", opts.AttemptTimeout, err)
 		}
 		if restic.IsLockError(err) {
 			r.log.Warn("repository is locked, unlocking stale locks before retrying")
@@ -255,6 +261,16 @@ func (r *Runner) finish(ctx context.Context, run state.Run, warnings []string, r
 	if _, err := r.store.Record(run); err != nil {
 		r.log.Error("cannot write state", "error", err)
 	}
+	audit.Logger{Path: r.cfg.AuditFile, Log: r.log}.Record(audit.Entry{
+		Time:     run.FinishedAt,
+		Action:   run.Kind,
+		Host:     r.cfg.Host,
+		Snapshot: run.SnapshotID,
+		Files:    int64(run.FilesNew + run.FilesChanged),
+		Bytes:    run.BytesAdded,
+		Result:   run.Status,
+		Error:    run.Error,
+	})
 
 	ev := notify.Event{
 		Event:           run.Kind,

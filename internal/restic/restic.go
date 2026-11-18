@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -100,6 +101,15 @@ func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
 	all = append(all, c.extra...)
 	all = append(all, args...)
 	cmd := exec.CommandContext(ctx, c.binary, all...)
+	// exec.CommandContext kills with SIGKILL by default, which leaves restic
+	// locks behind. Ask restic to shut down cleanly first.
+	cmd.Cancel = func() error {
+		if cmd.Process == nil {
+			return nil
+		}
+		return cmd.Process.Signal(syscall.SIGTERM)
+	}
+	cmd.WaitDelay = 30 * time.Second
 	cmd.Env = c.environment()
 	return cmd
 }
@@ -115,6 +125,9 @@ type BackupOptions struct {
 	LimitUpload   int
 	Compression   string
 	PackSize      int
+	// AttemptTimeout bounds one restic run. Zero disables the bound and keeps
+	// the overall command deadline only.
+	AttemptTimeout time.Duration
 }
 
 // Summary is the final restic backup message.
@@ -132,6 +145,11 @@ type Summary struct {
 // Backup copies paths into the repository and returns restic's summary.
 func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
 	var summary Summary
+	if o.AttemptTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.AttemptTimeout)
+		defer cancel()
+	}
 
 	args := []string{"backup", "--json"}
 	if o.Host != "" {

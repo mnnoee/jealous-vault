@@ -44,8 +44,13 @@ type Report struct {
 	Failed  bool     `json:"failed"`
 }
 
-// testedResticMinor is the restic series the agent is tested with.
-const testedResticMinor = "0.18"
+// supportedResticMinors are the series tested and supported out of the box.
+// A user who does not trust the installed binary can point restic_binary at
+// their own build; doctor only warns for untested series.
+var supportedResticMinors = map[string]bool{
+	"0.18": true,
+	"0.19": true,
+}
 
 // Options configures external commands.
 type Options struct {
@@ -66,6 +71,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkConfigFile(cfg, add)
 	checkPassword(cfg, add)
 	checkSecretFiles(cfg, add)
+	checkAudit(cfg, add)
 
 	client := restic.New(restic.Options{
 		Binary:       cfg.ResticBinary,
@@ -159,6 +165,36 @@ func checkSecretFiles(cfg *config.Config, add func(string, Level, string)) {
 			add(check.label, LevelFail, err.Error())
 		}
 	}
+}
+
+func checkAudit(cfg *config.Config, add func(string, Level, string)) {
+	if cfg.AuditFile == "" {
+		add("audit", LevelWarn, "disabled, critical actions are not recorded")
+		return
+	}
+	dir := filepath.Dir(cfg.AuditFile)
+	info, err := os.Stat(dir)
+	if os.IsNotExist(err) {
+		add("audit", LevelWarn, dir+" does not exist yet, it is created on the first critical action")
+		return
+	}
+	if err != nil {
+		add("audit", LevelFail, err.Error())
+		return
+	}
+	if !info.IsDir() {
+		add("audit", LevelFail, dir+" is not a directory")
+		return
+	}
+	probe, err := os.CreateTemp(dir, ".audit-probe-*")
+	if err != nil {
+		add("audit", LevelFail, dir+" is not writable: "+err.Error())
+		return
+	}
+	name := probe.Name()
+	probe.Close()
+	_ = os.Remove(name)
+	add("audit", LevelOK, cfg.AuditFile)
 }
 
 func checkBackupSecrets(cfg *config.Config, add func(string, Level, string)) {
@@ -258,8 +294,8 @@ func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client,
 		add("restic", LevelWarn, version+" (cannot parse version)")
 		return true
 	}
-	if minor != testedResticMinor {
-		add("restic", LevelWarn, fmt.Sprintf("%s, tested with %s.x", version, testedResticMinor))
+	if !supportedResticMinors[minor] {
+		add("restic", LevelWarn, fmt.Sprintf("%s, supported series are 0.18.x and 0.19.x", version))
 		return true
 	}
 	add("restic", LevelOK, version)

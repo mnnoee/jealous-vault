@@ -130,10 +130,26 @@ func hasResult(report Report, name string, level Level) bool {
 	return false
 }
 
+func TestSupportedResticVersionIsOK(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.ResticBinary = fakeCommand(t, t.TempDir(), "restic", `case "$1" in
+version) echo "restic 0.19.1 fake";;
+cat) exit 0;;
+*) exit 0;;
+esac
+`)
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !hasResult(report, "restic", LevelOK) {
+		t.Errorf("supported version was not accepted: %+v", report.Results)
+	}
+}
+
 func TestUntestedResticVersionWarns(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.ResticBinary = fakeCommand(t, t.TempDir(), "restic", `case "$1" in
-version) echo "restic 0.19.0 fake";;
+version) echo "restic 0.20.0 fake";;
 cat) exit 0;;
 *) exit 0;;
 esac

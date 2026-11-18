@@ -29,6 +29,10 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	units := filepath.Join(dir, "units")
 	binary := filepath.Join(dir, "bin", "jealous-vault")
 	systemctl, logFile := fakeSystemctl(t, dir)
+	logrotate := filepath.Join(dir, "logrotate")
+	if err := os.MkdirAll(logrotate, 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	cfg := config.Default()
 	cfg.StateFile = filepath.Join(dir, "state", "state.json")
@@ -36,10 +40,11 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	cfg.Schedule.RandomizedDelay = "20m"
 
 	installer := &Installer{
-		BinaryPath: binary,
-		ConfigPath: filepath.Join(dir, "etc", "config.toml"),
-		UnitDir:    units,
-		Systemctl:  systemctl,
+		BinaryPath:   binary,
+		ConfigPath:   filepath.Join(dir, "etc", "config.toml"),
+		UnitDir:      units,
+		Systemctl:    systemctl,
+		LogrotateDir: logrotate,
 	}
 	if err := installer.Install(context.Background(), cfg); err != nil {
 		t.Fatalf("Install: %v", err)
@@ -77,6 +82,16 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	for _, want := range []string{"NoNewPrivileges=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes", "UMask=0077", "Environment=RESTIC_CACHE_DIR=/var/cache/jealous-vault", "CacheDirectory=jealous-vault"} {
 		if !strings.Contains(string(service), want) {
 			t.Errorf("service does not contain %q:\n%s", want, service)
+		}
+	}
+
+	rotate, err := os.ReadFile(filepath.Join(logrotate, "jealous-vault"))
+	if err != nil {
+		t.Fatalf("logrotate config missing: %v", err)
+	}
+	for _, want := range []string{cfg.AuditFile, "weekly", "rotate 12", "create 0600 root root"} {
+		if !strings.Contains(string(rotate), want) {
+			t.Errorf("logrotate config does not contain %q:\n%s", want, rotate)
 		}
 	}
 

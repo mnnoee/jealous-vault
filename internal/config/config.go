@@ -27,6 +27,8 @@ const (
 	// DefaultCacheDir is where restic keeps its index cache. systemd creates
 	// it through CacheDirectory= and units pass it as RESTIC_CACHE_DIR.
 	DefaultCacheDir = "/var/cache/jealous-vault"
+	// DefaultAuditFile is the append-only journal of critical actions.
+	DefaultAuditFile = "/var/log/jealous-vault/audit.jsonl"
 	// DefaultResticBinary is resolved through PATH.
 	DefaultResticBinary = "restic"
 )
@@ -40,6 +42,7 @@ type Config struct {
 	HistoryFile  string    `toml:"history_file"`
 	LockFile     string    `toml:"lock_file"`
 	AlertsFile   string    `toml:"alerts_file"`
+	AuditFile    string    `toml:"audit_file"`
 	ResticBinary string    `toml:"restic_binary"`
 	Repository   Repo      `toml:"repository"`
 	Backup       Backup    `toml:"backup"`
@@ -55,17 +58,18 @@ type Config struct {
 
 	Path string `toml:"-"`
 
-	BackupTimeout   time.Duration `toml:"-"`
-	CheckTimeout    time.Duration `toml:"-"`
-	NotifyTimeout   time.Duration `toml:"-"`
-	RandomizedDelay time.Duration `toml:"-"`
-	FreshnessMaxAge time.Duration `toml:"-"`
-	VerifyTimeout   time.Duration `toml:"-"`
-	VerifyMaxSize   int64         `toml:"-"`
-	VerifyMinFree   int64         `toml:"-"`
-	RetryDelay      time.Duration `toml:"-"`
-	EmailPassword   string        `toml:"-"`
-	EmailTimeout    time.Duration `toml:"-"`
+	BackupTimeout        time.Duration `toml:"-"`
+	BackupAttemptTimeout time.Duration `toml:"-"`
+	CheckTimeout         time.Duration `toml:"-"`
+	NotifyTimeout        time.Duration `toml:"-"`
+	RandomizedDelay      time.Duration `toml:"-"`
+	FreshnessMaxAge      time.Duration `toml:"-"`
+	VerifyTimeout        time.Duration `toml:"-"`
+	VerifyMaxSize        int64         `toml:"-"`
+	VerifyMinFree        int64         `toml:"-"`
+	RetryDelay           time.Duration `toml:"-"`
+	EmailPassword        string        `toml:"-"`
+	EmailTimeout         time.Duration `toml:"-"`
 }
 
 // Repo describes the restic repository and its credentials.
@@ -82,20 +86,21 @@ type Repo struct {
 
 // Backup describes what to copy and how.
 type Backup struct {
-	Profile       string      `toml:"profile"`
-	Paths         []string    `toml:"paths"`
-	Excludes      []string    `toml:"excludes"`
-	Tags          []string    `toml:"tags"`
-	PreHooks      []string    `toml:"pre_hooks"`
-	PostHooks     []string    `toml:"post_hooks"`
-	OneFileSystem bool        `toml:"one_file_system"`
-	Timeout       string      `toml:"timeout"`
-	Attempts      int         `toml:"attempts"`
-	RetryDelay    string      `toml:"retry_delay"`
-	LimitUpload   int         `toml:"limit_upload"`
-	Compression   string      `toml:"compression"`
-	PackSize      int         `toml:"pack_size"`
-	Dumps         DumpOptions `toml:"dumps"`
+	Profile        string      `toml:"profile"`
+	Paths          []string    `toml:"paths"`
+	Excludes       []string    `toml:"excludes"`
+	Tags           []string    `toml:"tags"`
+	PreHooks       []string    `toml:"pre_hooks"`
+	PostHooks      []string    `toml:"post_hooks"`
+	OneFileSystem  bool        `toml:"one_file_system"`
+	Timeout        string      `toml:"timeout"`
+	AttemptTimeout string      `toml:"attempt_timeout"`
+	Attempts       int         `toml:"attempts"`
+	RetryDelay     string      `toml:"retry_delay"`
+	LimitUpload    int         `toml:"limit_upload"`
+	Compression    string      `toml:"compression"`
+	PackSize       int         `toml:"pack_size"`
+	Dumps          DumpOptions `toml:"dumps"`
 }
 
 // DumpOptions configures consistent PostgreSQL and MySQL dumps before restic.
@@ -247,6 +252,7 @@ func Default() *Config {
 		Job:          "default",
 		StateFile:    DefaultStateFile,
 		ResticBinary: DefaultResticBinary,
+		AuditFile:    DefaultAuditFile,
 		Repository: Repo{
 			CacheDir: DefaultCacheDir,
 		},
@@ -367,6 +373,9 @@ func (c *Config) finish() error {
 	if c.AlertsFile == "" {
 		c.AlertsFile = filepath.Join(filepath.Dir(c.StateFile), "alerts.json")
 	}
+	if c.AuditFile == "" {
+		c.AuditFile = DefaultAuditFile
+	}
 	if c.ResticBinary == "" {
 		c.ResticBinary = DefaultResticBinary
 	}
@@ -440,6 +449,9 @@ func (c *Config) finish() error {
 	}
 	if c.Backup.Timeout == "" {
 		c.Backup.Timeout = "6h"
+	}
+	if c.Backup.AttemptTimeout == "" {
+		c.Backup.AttemptTimeout = "2h"
 	}
 	if c.Backup.Attempts == 0 {
 		c.Backup.Attempts = 3
@@ -534,6 +546,9 @@ func (c *Config) finish() error {
 	if c.BackupTimeout, err = parseDuration("backup.timeout", c.Backup.Timeout); err != nil {
 		return err
 	}
+	if c.BackupAttemptTimeout, err = parseDuration("backup.attempt_timeout", c.Backup.AttemptTimeout); err != nil {
+		return err
+	}
 	if c.CheckTimeout, err = parseDuration("check.timeout", c.Check.Timeout); err != nil {
 		return err
 	}
@@ -595,6 +610,7 @@ func (c *Config) Validate() error {
 		{"history_file", c.HistoryFile},
 		{"lock_file", c.LockFile},
 		{"alerts_file", c.AlertsFile},
+		{"audit_file", c.AuditFile},
 		{"repository.password_file", c.Repository.PasswordFile},
 		{"repository.env_file", c.Repository.EnvFile},
 		{"repository.cache_dir", c.Repository.CacheDir},
@@ -707,6 +723,9 @@ func (c *Config) Validate() error {
 	}
 	if c.BackupTimeout <= 0 {
 		return errors.New("backup.timeout must be positive")
+	}
+	if c.BackupAttemptTimeout < 0 {
+		return errors.New("backup.attempt_timeout must not be negative")
 	}
 	if c.Backup.Attempts < 1 {
 		return errors.New("backup.attempts must be at least 1")

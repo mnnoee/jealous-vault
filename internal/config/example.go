@@ -129,6 +129,7 @@ state_file = %s
 history_file = %s
 lock_file = %s
 alerts_file = %s
+audit_file = %s
 restic_binary = "restic"
 
 [repository]
@@ -163,6 +164,8 @@ post_hooks = []
 # listed in paths explicitly. Otherwise its contents are skipped.
 one_file_system = true
 timeout = "6h"
+# A single restic run is killed after this long and retried.
+attempt_timeout = "2h"
 # Retry the restic backup on failure. Lock errors also run restore unlock.
 attempts = 3
 retry_delay = "1m"
@@ -303,7 +306,7 @@ password_file = ""
 password_env = ""
 security = "starttls"
 timeout = "15s"
-`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(repoURL), quote(passwordFile), quote(cacheDir), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), quote(filepath.Join(filepath.Dir(stateFile), "dumps")), o.Proxmox)
+`, quote(host), quote(job), quote(stateFile), quote(filepath.Join(filepath.Dir(stateFile), "history.jsonl")), quote(filepath.Join(filepath.Dir(stateFile), "backup.lock")), quote(filepath.Join(filepath.Dir(stateFile), "alerts.json")), quote(DefaultAuditFile), quote(repoURL), quote(passwordFile), quote(cacheDir), sftpKeyLine, sftpKnownHostsLine, quote(profile), quoteSlice(paths), quoteSlice(excludes), quote(filepath.Join(filepath.Dir(stateFile), "dumps")), o.Proxmox)
 
 	return b.String()
 }
