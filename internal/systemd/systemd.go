@@ -122,6 +122,17 @@ func (i *Installer) names() unitNames {
 	}
 }
 
+// cacheDirectives pins restic's cache directory inside the unit. systemd then
+// owns the directory. A custom repository.cache_dir is deliberately left out:
+// the agent creates it at run time, and an Environment= here would override
+// the user's choice.
+func cacheDirectives(cfg *config.Config) string {
+	if cfg.Repository.CacheDir != "" && cfg.Repository.CacheDir != config.DefaultCacheDir {
+		return ""
+	}
+	return "CacheDirectory=jealous-vault\nCacheDirectoryMode=0700\nEnvironment=RESTIC_CACHE_DIR=" + config.DefaultCacheDir + "\n"
+}
+
 // Install copies the binary, writes the units and starts the timers.
 func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	i.defaults()
@@ -149,16 +160,17 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	}
 
 	n := i.names()
+	cache := cacheDirectives(cfg)
 	units := map[string]string{
-		n.backupService:    hardened(backupService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
+		n.backupService:    hardened(backupService(i.BinaryPath, i.ConfigPath, cache), "UMask=0077\n"),
 		n.backupTimer:      backupTimer(cfg.Schedule.OnCalendar, cfg.Schedule.RandomizedDelay, n.backupService),
-		n.checkService:     hardened(checkService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
+		n.checkService:     hardened(checkService(i.BinaryPath, i.ConfigPath, cache), "UMask=0077\n"),
 		n.checkTimer:       checkTimer(n.checkService),
 		n.freshnessService: hardened(freshnessService(i.BinaryPath, i.ConfigPath), "UMask=0077\n"),
 		n.freshnessTimer:   freshnessTimer(cfg.Freshness.Schedule, n.freshnessService),
 	}
 	if cfg.Verify.Enabled {
-		units[n.verifyService] = hardened(verifyService(i.BinaryPath, i.ConfigPath), "")
+		units[n.verifyService] = hardened(verifyService(i.BinaryPath, i.ConfigPath, cache), "")
 		units[n.verifyTimer] = verifyTimer(cfg.Verify.Schedule, n.verifyService)
 	} else {
 		for _, name := range []string{n.verifyTimer, n.verifyService} {
@@ -169,7 +181,7 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
 		}
-		units[n.proxmoxService] = hardened(proxmoxService(i.BinaryPath, i.ConfigPath), "")
+		units[n.proxmoxService] = hardened(proxmoxService(i.BinaryPath, i.ConfigPath, cache), "")
 		units[n.proxmoxTimer] = proxmoxTimer(cfg.Proxmox.Schedule, n.proxmoxService)
 	} else {
 		for _, name := range []string{n.proxmoxTimer, n.proxmoxService} {
@@ -177,7 +189,7 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 		}
 	}
 	if cfg.Copy.Enabled {
-		units[n.copyService] = hardened(copyService(i.BinaryPath, i.ConfigPath), "UMask=0077\n")
+		units[n.copyService] = hardened(copyService(i.BinaryPath, i.ConfigPath, cache), "UMask=0077\n")
 		units[n.copyTimer] = copyTimer(cfg.Copy.Schedule, n.copyService)
 	} else {
 		for _, name := range []string{n.copyTimer, n.copyService} {
@@ -345,6 +357,8 @@ func (i *Installer) runRC(ctx context.Context, bin string, args ...string) error
 }
 
 func periodicScript(binary, command, configPath string) string {
+	// The agent sets RESTIC_CACHE_DIR from repository.cache_dir, so the
+	// script must not pin it and override a custom location.
 	return "#!/bin/sh\nexec " + shellQuote(binary) + " " + command + " --config " + shellQuote(configPath) + "\n"
 }
 
@@ -505,7 +519,7 @@ func hardened(body, extra string) string {
 	return strings.Replace(body, marker, marker+extra+serviceHardening, 1)
 }
 
-func backupService(binary, configPath string) string {
+func backupService(binary, configPath, cache string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault backup
 Documentation=https://github.com/mnnoee/jealous-vault
@@ -514,12 +528,12 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s backup --config %s
+%sExecStart=%s backup --config %s
 TimeoutStartSec=0
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-`, quoteArg(binary), quoteArg(configPath))
+`, cache, quoteArg(binary), quoteArg(configPath))
 }
 
 func backupTimer(onCalendar, randomizedDelay, service string) string {
@@ -541,7 +555,7 @@ WantedBy=timers.target
 `, onCalendar, randomizedDelay, service)
 }
 
-func checkService(binary, configPath string) string {
+func checkService(binary, configPath, cache string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault repository check
 Documentation=https://github.com/mnnoee/jealous-vault
@@ -550,12 +564,12 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s check --config %s
+%sExecStart=%s check --config %s
 TimeoutStartSec=0
 Nice=15
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-`, quoteArg(binary), quoteArg(configPath))
+`, cache, quoteArg(binary), quoteArg(configPath))
 }
 
 func checkTimer(service string) string {
@@ -609,7 +623,7 @@ WantedBy=timers.target
 `, schedule, service)
 }
 
-func verifyService(binary, configPath string) string {
+func verifyService(binary, configPath, cache string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault scheduled test restore
 Documentation=https://github.com/mnnoee/jealous-vault
@@ -618,12 +632,12 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s test-restore --config %s
+%sExecStart=%s test-restore --config %s
 TimeoutStartSec=0
 Nice=15
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-`, quoteArg(binary), quoteArg(configPath))
+`, cache, quoteArg(binary), quoteArg(configPath))
 }
 
 func verifyTimer(schedule, service string) string {
@@ -645,7 +659,7 @@ WantedBy=timers.target
 `, schedule, service)
 }
 
-func proxmoxService(binary, configPath string) string {
+func proxmoxService(binary, configPath, cache string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault Proxmox dump and backup
 Documentation=https://github.com/mnnoee/jealous-vault
@@ -654,12 +668,12 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s vzdump --config %s
+%sExecStart=%s vzdump --config %s
 TimeoutStartSec=0
 Nice=10
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-`, quoteArg(binary), quoteArg(configPath))
+`, cache, quoteArg(binary), quoteArg(configPath))
 }
 
 func proxmoxTimer(schedule, service string) string {
@@ -681,7 +695,7 @@ WantedBy=timers.target
 `, schedule, service)
 }
 
-func copyService(binary, configPath string) string {
+func copyService(binary, configPath, cache string) string {
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault repository copy
 Documentation=https://github.com/mnnoee/jealous-vault
@@ -690,12 +704,12 @@ After=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=%s repo copy --config %s
+%sExecStart=%s repo copy --config %s
 TimeoutStartSec=0
 Nice=15
 IOSchedulingClass=best-effort
 IOSchedulingPriority=7
-`, quoteArg(binary), quoteArg(configPath))
+`, cache, quoteArg(binary), quoteArg(configPath))
 }
 
 func copyTimer(schedule, service string) string {

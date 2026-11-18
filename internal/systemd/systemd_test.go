@@ -74,7 +74,7 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 	if !strings.Contains(string(service), "TimeoutStartSec=0") {
 		t.Errorf("long backups would be killed by the default timeout:\n%s", service)
 	}
-	for _, want := range []string{"NoNewPrivileges=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes", "UMask=0077"} {
+	for _, want := range []string{"NoNewPrivileges=yes", "ProtectKernelTunables=yes", "ProtectKernelModules=yes", "UMask=0077", "Environment=RESTIC_CACHE_DIR=/var/cache/jealous-vault", "CacheDirectory=jealous-vault"} {
 		if !strings.Contains(string(service), want) {
 			t.Errorf("service does not contain %q:\n%s", want, service)
 		}
@@ -88,6 +88,32 @@ func TestInstallWritesUnitsAndStartsTimers(t *testing.T) {
 		if !strings.Contains(string(log), want) {
 			t.Errorf("systemctl log does not contain %q:\n%s", want, log)
 		}
+	}
+}
+
+func TestCustomCacheDirIsNotPinnedInUnits(t *testing.T) {
+	dir := t.TempDir()
+	systemctl, _ := fakeSystemctl(t, dir)
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(dir, "state.json")
+	cfg.Repository.CacheDir = filepath.Join(dir, "custom-cache")
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		UnitDir:    filepath.Join(dir, "units"),
+		Systemctl:  systemctl,
+		SkipStart:  true,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, "units", BackupService))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(body), "RESTIC_CACHE_DIR") || strings.Contains(string(body), "CacheDirectory=") {
+		t.Fatalf("unit overrides the configured cache directory:\n%s", body)
 	}
 }
 
