@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="JealousVault">
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#ffffff" stroke="#000000" stroke-width="4"/>
+
+  <g fill="none" stroke="#000000" stroke-linecap="round">
+    <circle cx="64" cy="64" r="38" stroke-width="5"/>
+    <circle cx="64" cy="64" r="27" stroke-width="3"/>
+    <path d="M64 26v12M64 90v12M26 64h12M90 64h12" stroke-width="4"/>
+    <path d="M37 37l8.5 8.5M82.5 82.5L91 91M91 37l-8.5 8.5M45.5 82.5L37 91" stroke-width="3"/>
+  </g>
+
+  <circle cx="64" cy="64" r="9" fill="#000000"/>
+  <path d="M64 72v13" stroke="#000000" stroke-width="6" stroke-linecap="round"/>
+</svg>
