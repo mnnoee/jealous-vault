@@ -1,0 +1,121 @@
+name: release
+
+on:
+  push:
+    tags: ["[0-9]*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOAMD64: v1
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: test
+        run: go test ./...
+
+      - name: build
+        run: |
+          set -eu
+          COMMIT="$(git rev-parse --short=12 HEAD)"
+          DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X main.version=${TAG} -X main.commit=${COMMIT} -X main.date=${DATE}"
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/jealous-vault-linux-amd64 ./cmd/jealous-vault
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+            go build -trimpath -ldflags "${LDFLAGS}" \
+            -o dist/jealous-vault-linux-arm64 ./cmd/jealous-vault
+
+      - name: amd64 v1 smoke on qemu64
+        run: |
+          set -eu
+          ok=0
+          for i in 1 2 3; do
+            if sudo apt-get update -qq && sudo apt-get install -y -qq qemu-user; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          test "${ok}" = 1
+          QEMU="$(command -v qemu-x86_64-static || command -v qemu-x86_64)"
+          test -n "${QEMU}"
+          "${QEMU}" -cpu qemu64 dist/jealous-vault-linux-amd64 version
+
+      - name: licenses
+        run: |
+          set -eu
+          go install github.com/google/go-licenses@v1.6.0
+          "$(go env GOPATH)/bin/go-licenses" report ./... \
+            --template build/licenses.tmpl > dist/THIRD-PARTY-LICENSES.md
+
+      - name: checksums
+        run: |
+          set -eu
+          cd dist
+          sha256sum jealous-vault-linux-amd64 jealous-vault-linux-arm64 \
+            THIRD-PARTY-LICENSES.md > SHA256SUMS
+
+      - name: sign
+        env:
+          SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          set -eu
+          if [ -z "${SIGNING_KEY}" ]; then
+            echo "RELEASE_SIGNING_KEY is empty" >&2
+            exit 1
+          fi
+          key="${RUNNER_TEMP}/release-signing-key"
+          printf '%s\n' "${SIGNING_KEY}" > "${key}"
+          chmod 600 "${key}"
+          ssh-keygen -Y sign -f "${key}" -n jealous-vault-release dist/SHA256SUMS
+          ssh-keygen -Y verify -f build/allowed_signers -I release \
+            -n jealous-vault-release -s dist/SHA256SUMS.sig < dist/SHA256SUMS
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          PRERELEASE=false
+          case "${TAG}" in
+            0.*|*-*) PRERELEASE=true ;;
+          esac
+          assets="dist/jealous-vault-linux-amd64 dist/jealous-vault-linux-arm64 dist/THIRD-PARTY-LICENSES.md dist/SHA256SUMS dist/SHA256SUMS.sig"
+          if gh release view "${TAG}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${TAG}" ${assets} --repo "${GITHUB_REPOSITORY}" --clobber
+          else
+            title="${TAG}"
+            if [ "${PRERELEASE}" = true ]; then
+              title="${TAG} beta"
+              gh release create "${TAG}" ${assets} \
+                --repo "${GITHUB_REPOSITORY}" --title "${title}" \
+                --generate-notes --prerelease
+            else
+              gh release create "${TAG}" ${assets} \
+                --repo "${GITHUB_REPOSITORY}" --title "${title}" \
+                --generate-notes
+            fi
+          fi
