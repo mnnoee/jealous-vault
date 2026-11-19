@@ -18,6 +18,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
+	"github.com/mnnoee/jealous-vault/internal/state"
 	"github.com/mnnoee/jealous-vault/internal/systemd"
 )
 
@@ -103,6 +104,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkS3Credentials(cfg, add)
 	checkEmail(ctx, cfg, add)
 	checkRetention(cfg, add)
+	checkLastVerify(ctx, cfg, client, resticAvailable, add)
 	if cfg.Proxmox.Enabled {
 		checkProxmox(ctx, cfg, add)
 	}
@@ -277,6 +279,35 @@ func checkDumpBackend(name, binary, password string, add func(string, Level, str
 			add("dump "+name, LevelFail, err.Error())
 		}
 	}
+}
+
+// checkLastVerify catches a state file that still points at a snapshot which
+// retention has already removed. Without this, status reports the old verify
+// as successful forever.
+func checkLastVerify(ctx context.Context, cfg *config.Config, client *restic.Client, resticAvailable bool, add func(string, Level, string)) {
+	st, err := (state.Store{Path: cfg.StateFile}).Load()
+	if err != nil {
+		add("last verify", LevelWarn, "cannot read state: "+err.Error())
+		return
+	}
+	if st.LastVerify == nil || st.LastVerify.SnapshotID == "" || !resticAvailable {
+		return
+	}
+	snapshots, err := client.Snapshots(ctx, "")
+	if err != nil {
+		add("last verify", LevelWarn, "cannot list snapshots: "+err.Error())
+		return
+	}
+	for _, snapshot := range snapshots {
+		if snapshot.ID == st.LastVerify.SnapshotID {
+			return
+		}
+	}
+	short := st.LastVerify.SnapshotID
+	if len(short) > 8 {
+		short = short[:8]
+	}
+	add("last verify", LevelWarn, fmt.Sprintf("snapshot %s is no longer in the repository; run test-restore again", short))
 }
 
 func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client, add func(string, Level, string)) bool {

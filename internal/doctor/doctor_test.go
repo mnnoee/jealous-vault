@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/state"
 )
 
 func fakeCommand(t *testing.T, dir, name, body string) string {
@@ -118,6 +119,26 @@ func TestRunNoSystemd(t *testing.T) {
 	}
 	if !hasResult(report, "systemd", LevelWarn) {
 		t.Errorf("systemd check did not warn: %+v", report.Results)
+	}
+}
+
+func TestStaleLastVerifyWarns(t *testing.T) {
+	cfg := testConfig(t)
+	if _, err := (state.Store{Path: cfg.StateFile}).Record(state.Run{
+		Kind:       state.KindVerify,
+		Status:     state.StatusSuccess,
+		SnapshotID: "deadbeefdeadbeefdeadbeefdeadbeef",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("stale verify must be a warning, not a failure: %+v", report.Results)
+	}
+	if !hasResult(report, "last verify", LevelWarn) {
+		t.Errorf("stale last verify was not reported: %+v", report.Results)
 	}
 }
 
