@@ -17,10 +17,10 @@ A release contains:
 | `SHA256SUMS`                | checksums           |
 | `SHA256SUMS.sig`            | detached signature  |
 
-The signature is verified with `build/allowed_signers` from the repository. For tag `v0.1.0`:
+The signature is verified with `build/allowed_signers` from the repository. For tag `0.1.0`:
 
 ```sh
-VERSION=v0.1.0
+VERSION=0.1.0
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 mkdir jv-release && cd jv-release

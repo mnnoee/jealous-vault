@@ -16,10 +16,10 @@
 | `SHA256SUMS`                | контрольные суммы                  |
 | `SHA256SUMS.sig`            | отсоединённая подпись `SHA256SUMS` |
 
-Подпись проверяется ключом из `build/allowed_signers` в репозитории. Пример для тега `v0.1.0`:
+Подпись проверяется ключом из `build/allowed_signers` в репозитории. Пример для тега `0.1.0`:
 
 ```sh
-VERSION=v0.1.0
+VERSION=0.1.0
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 mkdir jv-release && cd jv-release

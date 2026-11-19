@@ -45,7 +45,7 @@ JealousVault puts those pieces behind one config and a set of commands that fit 
 ## Quick start
 
 ```sh
-VERSION=v0.1.0
+VERSION=0.1.0
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 curl -fLO "$BASE/jealous-vault-linux-amd64"
