@@ -27,6 +27,17 @@
 
 ---
 
+## Start here
+
+| Task                               | Document                                                     |
+| ---------------------------------- | ------------------------------------------------------------ |
+| Install or upgrade                 | [docs/install.md](docs/install.md)                           |
+| Restore files, databases or VMs    | [docs/restore.md](docs/restore.md)                           |
+| Platform support and tested limits | [docs/platforms-and-limits.md](docs/platforms-and-limits.md) |
+| Fix a failure                      | [docs/troubleshooting.md](docs/troubleshooting.md)           |
+| Stability and changes              | [STABILITY.md](STABILITY.md) · [CHANGELOG.md](CHANGELOG.md)  |
+| Scope, MVP and extensions          | [docs/mvp.md](docs/mvp.md)                                   |
+
 ## Why
 
 restic handles encryption, deduplication and repository format. It still leaves the operator to wire
@@ -122,10 +133,26 @@ Tested: 6 real hosts; 20 LXC at the same time into one S3 storage, about 1.16 Gi
 container and about 22 GiB total. Not tested: more than 6 real hosts, more than 20 simultaneous LXC,
 databases in the hundreds of GiB, a Proxmox cluster.
 
+What the beta does and does not cover, and what the MVP still needs:
+[docs/mvp.md](docs/mvp.md).
+
+## Ecosystem
+
+JealousVault is an open project, not a gated product. Its ecosystem is open to independent
+developers, third-party extensions and alternative implementations. Commercial extensions are
+welcome, and their authors retain ownership of their respective work. See
+[ECOSYSTEM.md](ECOSYSTEM.md).
+
 ## Contributing
 
+- [Contributing](CONTRIBUTING.md)
+- [Maintainers](MAINTAINERS.md)
+- [Ecosystem](ECOSYSTEM.md)
+- [Commercial extension CLA](CLA.md)
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Security policy](SECURITY.md)
+- [Stability contract](STABILITY.md) · [Changelog](CHANGELOG.md)
+- [MVP and scope](docs/mvp.md) · [Architecture decisions](docs/adr/README.md)
 - Documentation: [docs/README.md](docs/README.md)
 
 ## License

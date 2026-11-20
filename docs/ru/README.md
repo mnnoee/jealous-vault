@@ -88,3 +88,18 @@ Beta. На живых Linux-хостах, S3, SFTP, PostgreSQL и MariaDB ядр
 - проверки БД на сотнях ГиБ;
 - проверки Proxmox-кластера, Windows VM и больших `vzdump`;
 - пакетов, сайта и публичного TLS-URL.
+
+## Документы проекта
+
+| Файл                                                 | О чём                                                       |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| [mvp.md](mvp.md)                                     | критерии MVP, публичный продукт, расширения                 |
+| [../../STABILITY.ru.md](../../STABILITY.ru.md)       | публичный API, политика deprecation, breaking changes       |
+| [../../CHANGELOG.ru.md](../../CHANGELOG.ru.md)       | история релизов                                             |
+| [../../MAINTAINERS.ru.md](../../MAINTAINERS.ru.md)   | мейнтейнеры, сроки ответа, bus factor                       |
+| [../../CONTRIBUTING.ru.md](../../CONTRIBUTING.ru.md) | DCO, проверки, ожидания по review                           |
+| [../../ECOSYSTEM.ru.md](../../ECOSYSTEM.ru.md)       | плагины, коммерческие расширения, альтернативные реализации |
+| [../../CLA.ru.md](../../CLA.ru.md)                   | соглашение о вкладе в коммерческое расширение               |
+| [../adr/ru/README.md](../adr/ru/README.md)           | архитектурные решения                                       |
+
+Документация на английском: [../README.md](../README.md).

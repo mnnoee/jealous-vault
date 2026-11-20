@@ -1,0 +1,94 @@
+# Changelog
+
+English · [Русский](CHANGELOG.ru.md)
+
+All notable changes to JealousVault are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is
+in [STABILITY.md](STABILITY.md).
+
+## [Unreleased]
+
+### Added
+
+- `STABILITY.md` and `STABILITY.ru.md`: the public API, deprecation policy and breaking-change
+  rules.
+- `MAINTAINERS.md` and `MAINTAINERS.ru.md`: maintainer model, response targets and bus factor.
+- `CONTRIBUTING.md` and `CONTRIBUTING.ru.md`: DCO, checks and review expectations.
+- `ECOSYSTEM.md` and `ECOSYSTEM.ru.md`: the public product, independent plugins, commercial
+  extensions and trademark rules.
+- `CLA.md` and `CLA.ru.md`: a separate contributor licence agreement for code accepted into a
+  commercial extension. It does not apply to ordinary pull requests.
+- `docs/mvp.md` and `docs/ru/mvp.md`: MVP definition, the public product boundary and the additive
+  commercial offer.
+- `docs/adr/`: five architecture decision records in English and Russian covering TOML, separate
+  state, the no-daemon design, `tick` mode and the public-product-plus-extensions model.
+- `CHANGELOG.ru.md`: Russian changelog.
+- A "Start here" navigation block at the top of both READMEs.
+
+### Changed
+
+- Contributions to the public repository are accepted under Apache-2.0 with a DCO sign-off only.
+  They do not grant additional proprietary or relicensing rights.
+- The product model is documented as a complete Apache-2.0 public product with separate, additive
+  commercial extensions and support. There is no open-core feature gating.
+- Third-party plugins may use their own licences, including GPL-3.0; their authors retain ownership.
+
+## [0.1.0] - 2026-11-19
+
+First public beta.
+
+### Added
+
+- `init`, `install` and `uninstall` with systemd services and timers, OpenRC, cron, runit and a
+  portable `tick` mode.
+- restic repositories over S3, SFTP, local paths and REST, with encryption keys kept outside the
+  repository.
+- Backups with host, VM-dumps and custom profiles, excludes, tags, hooks, retries, transfer limits,
+  compression and a total timeout.
+- Consistent PostgreSQL and MariaDB/MySQL dumps before the backup, with retention for dump
+  directories.
+- Retention with `keep_last`, `keep_daily`, `keep_weekly`, `keep_monthly`, `keep_within`,
+  `keep_tag` and optional `prune`.
+- Integrity and recovery checks: `check`, `test-restore`/`verify`, `freshness`, `doctor`, `status`
+  and `history`.
+- Restore of files, directories, databases, named recipes and VM/CT archives, with confirmation for
+  system targets, overwrite modes and verification.
+- `mount` for read-only snapshot access through FUSE.
+- Partial Proxmox support: `vzdump` for VMs and containers and `restore-vm` through `qmrestore` or
+  `pct restore`.
+- Alerts over Telegram (including forum topics), email through a local MTA or SMTP, JSON webhooks
+  and healthchecks.io-style pings, with per-class deduplication.
+- Multiple independent jobs per host, each with its own config, repository, password, state, cache,
+  lock and units.
+- Audit journal of critical actions with the invoking user, SSH origin and sudo context.
+- Repository operations: `init`, `unlock`, `stats`, `diff`, `delete`, `copy` to a second repository,
+  password rotation and key management.
+- Recovery kit for offline access to the repository password and restic environment.
+- Signed release assets: `linux/amd64` and `linux/arm64` binaries, `THIRD-PARTY-LICENSES.md`,
+  `SHA256SUMS` and `SHA256SUMS.sig`.
+- English and Russian documentation for install, configuration, operations, restore, platforms and
+  troubleshooting.
+
+### Security
+
+- Config, password, environment and SSH key files are `0600`; `/etc/jealous-vault` is excluded from
+  backups by default.
+- Unknown config keys are rejected instead of silently ignored.
+- Lock files refuse symlinks and use `flock` for exclusion.
+- Restores into system directories require explicit confirmation.
+- Proxmox dump archives are owner-only.
+- Alert endpoints and credentials are redacted from errors and logs.
+- The MySQL password is passed through a temporary `--defaults-extra-file`, and `HOME` is isolated
+  so `~/.my.cnf` cannot override it.
+- Release checksums are signed with an SSH Ed25519 key and verified with `build/allowed_signers`.
+
+### Known limitations
+
+- PostgreSQL and MariaDB are tested at 20 million rows and about 20 GiB, not at hundreds of GiB.
+- Proxmox clusters, Windows VMs and very large `vzdump` archives are not fully tested.
+- NixOS works with manual setup; no package or module is provided.
+- Termux is manual and depends on runsv/runit or JobScheduler.
+- `copy` between two S3 providers with different credentials may need a local source or an rclone
+  mirror.

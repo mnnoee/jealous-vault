@@ -35,6 +35,19 @@ English · [Русский](ru/README.md)
 
 Russian documentation: [ru/README.md](ru/README.md).
 
+## Project documents
+
+| File                                     | What it covers                                              |
+| ---------------------------------------- | ----------------------------------------------------------- |
+| [mvp.md](mvp.md)                         | MVP criteria, public product, commercial extensions         |
+| [../STABILITY.md](../STABILITY.md)       | public API, deprecation policy, breaking changes            |
+| [../CHANGELOG.md](../CHANGELOG.md)       | release history                                             |
+| [../MAINTAINERS.md](../MAINTAINERS.md)   | maintainer model, response targets, bus factor              |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | DCO, checks, review expectations                            |
+| [../ECOSYSTEM.md](../ECOSYSTEM.md)       | plugins, commercial extensions, alternative implementations |
+| [../CLA.md](../CLA.md)                   | commercial extension contributor licence agreement          |
+| [adr/README.md](adr/README.md)           | architecture decision records                               |
+
 ## Status
 
 Beta. The core works on real Linux hosts, S3 and SFTP, PostgreSQL and MariaDB. Restores of all

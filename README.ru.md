@@ -27,6 +27,17 @@
 
 ---
 
+## С чего начать
+
+| Задача                           | Документ                                                                |
+| -------------------------------- | ----------------------------------------------------------------------- |
+| Установка или обновление         | [docs/ru/install.md](docs/ru/install.md)                                |
+| Восстановление файлов, БД или VM | [docs/ru/restore.md](docs/ru/restore.md)                                |
+| Платформы и проверенные лимиты   | [docs/ru/platforms-and-limits.md](docs/ru/platforms-and-limits.md)      |
+| Исправить сбой                   | [docs/ru/troubleshooting.md](docs/ru/troubleshooting.md)                |
+| Стабильность и изменения         | [STABILITY.ru.md](STABILITY.ru.md) · [CHANGELOG.ru.md](CHANGELOG.ru.md) |
+| Границы MVP и расширений         | [docs/ru/mvp.md](docs/ru/mvp.md)                                        |
+
 ## Зачем
 
 `restic` отлично шифрует и дедуплицирует данные, но оставляет оператору много ручной работы:
@@ -115,10 +126,25 @@ sudo jealous-vault backup
 восстановление всех репозиториев в отдельный LXC. Большие БД проверены на 20 ГиБ; сотни ГиБ и
 кластер Proxmox - впереди. NixOS работает при ручной установке, пакета пока нет.
 
+Что beta покрывает и не покрывает и чего ещё требует MVP: [docs/ru/mvp.md](docs/ru/mvp.md).
+
+## Экосистема
+
+JealousVault - открытый проект, а не продукт за шлагбаумом. Его экосистема открыта для независимых
+разработчиков, сторонних расширений и альтернативных реализаций. Коммерческие расширения
+приветствуются, а права на свою работу остаются у их авторов. См.
+[ECOSYSTEM.ru.md](ECOSYSTEM.ru.md).
+
 ## Участие
 
+- [Как участвовать](CONTRIBUTING.ru.md)
+- [Мейнтейнеры](MAINTAINERS.ru.md)
+- [Экосистема](ECOSYSTEM.ru.md)
+- [CLA для коммерческих расширений](CLA.ru.md)
 - [Кодекс поведения](CODE_OF_CONDUCT.ru.md)
 - [Политика безопасности](SECURITY.ru.md)
+- [Контракт стабильности](STABILITY.ru.md) · [Changelog](CHANGELOG.ru.md)
+- [MVP и границы](docs/ru/mvp.md) · [Архитектурные решения](docs/adr/ru/README.md)
 - Документация: [docs/README.md](docs/ru/README.md)
 
 ## Лицензия
