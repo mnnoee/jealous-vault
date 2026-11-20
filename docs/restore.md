@@ -26,11 +26,15 @@ jealous-vault restore --estimate --json --snapshot latest
 ```sh
 sudo jealous-vault restore \
   --snapshot latest \
-  --target /srv/restore
+  --target /srv/restore --yes
 ```
 
 The command restores the whole snapshot filesystem into the target. Paths keep their structure:
 `/etc/hosts` becomes `/srv/restore/etc/hosts`.
+
+`/srv` is a system directory, so a whole-snapshot restore needs `--yes` even when the target is a
+subdirectory. The same applies to `/etc`, `/home`, `/var`, `/opt` and other top-level system
+directories. A restore with `--include` is treated as selective and does not need `--yes`.
 
 Selected paths:
 
@@ -59,7 +63,7 @@ sudo jealous-vault restore --snapshot latest --target / --yes
 Verify after restore:
 
 ```sh
-sudo jealous-vault restore --snapshot latest --target /srv/restore --verify
+sudo jealous-vault restore --snapshot latest --target /srv/restore --yes --verify
 ```
 
 Stop services and make sure you have console access before restoring over a live system. Prefer a

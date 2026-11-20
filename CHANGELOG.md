@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is
 in [STABILITY.md](STABILITY.md).
 
+## [Unreleased]
+
+### Fixed
+
+- `restore` now says "system directory" instead of "over /" when a whole-snapshot restore needs
+  confirmation. Docs add `--yes` for targets under `/srv`, `/home`, `/var`, `/opt` and other system
+  directories.
+
 ## [0.1.1] - 2026-11-20
 
 ### Added

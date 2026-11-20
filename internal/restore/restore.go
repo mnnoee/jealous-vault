@@ -133,4 +133,4 @@ func TestTarget(base string, now time.Time) string {
 }
 
 // ErrDangerous is returned when a dangerous restore lacks confirmation.
-var ErrDangerous = errors.New("refusing to restore a whole snapshot over / without confirmation")
+var ErrDangerous = errors.New("refusing to restore a whole snapshot into a system directory without confirmation")

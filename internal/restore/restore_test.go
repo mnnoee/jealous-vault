@@ -57,7 +57,7 @@ func TestDangerousWithIncludes(t *testing.T) {
 }
 
 func TestDangerousSystemTargets(t *testing.T) {
-	for _, target := range []string{"/etc", "/etc/nginx", "/var/lib/app", "/boot", "/root"} {
+	for _, target := range []string{"/etc", "/etc/nginx", "/srv/restore", "/var/lib/app", "/boot", "/root"} {
 		plan, err := New("latest", target, nil, OverwriteAlways)
 		if err != nil {
 			t.Fatal(err)
@@ -74,6 +74,12 @@ func TestDangerousSystemTargets(t *testing.T) {
 		if plan.Dangerous() {
 			t.Errorf("restore into %s must not require confirmation", target)
 		}
+	}
+}
+
+func TestDangerousMessage(t *testing.T) {
+	if !strings.Contains(ErrDangerous.Error(), "system directory") {
+		t.Fatalf("error text does not explain the real cause: %q", ErrDangerous)
 	}
 }
 

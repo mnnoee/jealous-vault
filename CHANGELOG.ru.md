@@ -8,6 +8,14 @@
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Контракт совместимости - в
 [STABILITY.ru.md](STABILITY.ru.md).
 
+## [Unreleased]
+
+### Исправлено
+
+- `restore` теперь пишет «system directory», а не «over /», когда для restore всего снапшота нужно
+  подтверждение. В документации добавлен `--yes` для целей внутри `/srv`, `/home`, `/var`, `/opt` и
+  других системных каталогов.
+
 ## [0.1.1] - 2026-11-20
 
 ### Добавлено

@@ -26,11 +26,15 @@ jealous-vault restore --estimate --json --snapshot latest
 ```sh
 sudo jealous-vault restore \
   --snapshot latest \
-  --target /srv/restore
+  --target /srv/restore --yes
 ```
 
 Команда восстанавливает всю файловую систему снапшота в указанный каталог. Пути внутри target
 сохраняют структуру: `/etc/hosts` окажется в `/srv/restore/etc/hosts`.
+
+`/srv` - системный каталог, поэтому для restore всего снапшота нужен `--yes`, даже если цель -
+подкаталог. То же относится к `/etc`, `/home`, `/var`, `/opt` и другим системным каталогам верхнего
+уровня. Restore с `--include` считается выборочным и `--yes` не требует.
 
 Отдельные пути:
 
@@ -59,7 +63,7 @@ sudo jealous-vault restore --snapshot latest --target / --yes
 Проверка содержимого после restore:
 
 ```sh
-sudo jealous-vault restore --snapshot latest --target /srv/restore --verify
+sudo jealous-vault restore --snapshot latest --target /srv/restore --yes --verify
 ```
 
 Перед таким restore остановите сервисы и убедитесь, что у вас есть консольный доступ. Лучше
