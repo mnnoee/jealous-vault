@@ -25,6 +25,7 @@ const (
 	KindBackup = "backup"
 	KindCheck  = "check"
 	KindVerify = "verify"
+	KindDrill  = "drill"
 )
 
 // Run statuses.
@@ -38,6 +39,7 @@ const (
 type Run struct {
 	Version         int       `json:"version"`
 	Kind            string    `json:"kind"`
+	Level           string    `json:"level,omitempty"`
 	StartedAt       time.Time `json:"started_at"`
 	FinishedAt      time.Time `json:"finished_at"`
 	Status          string    `json:"status"`
@@ -46,6 +48,7 @@ type Run struct {
 	FilesChanged    int       `json:"files_changed,omitempty"`
 	BytesAdded      int64     `json:"bytes_added,omitempty"`
 	DurationSeconds float64   `json:"duration_seconds"`
+	Details         []string  `json:"details,omitempty"`
 	Warnings        []string  `json:"warnings,omitempty"`
 	Error           string    `json:"error,omitempty"`
 }
@@ -57,6 +60,7 @@ type State struct {
 	LastSuccess *Run `json:"last_success,omitempty"`
 	LastCheck   *Run `json:"last_check,omitempty"`
 	LastVerify  *Run `json:"last_verify,omitempty"`
+	LastDrill   *Run `json:"last_drill,omitempty"`
 }
 
 // Store reads and writes the current state and the append-only run history.
@@ -160,6 +164,8 @@ func (s Store) Record(run Run) (*State, error) {
 		st.LastCheck = &run
 	case KindVerify:
 		st.LastVerify = &run
+	case KindDrill:
+		st.LastDrill = &run
 	default:
 		st.LastRun = &run
 		if run.Status == StatusSuccess {

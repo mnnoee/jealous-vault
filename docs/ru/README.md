@@ -1,14 +1,10 @@
 # JealousVault
 
-Шифрованные резервные копии Linux-хостов с частичной поддержкой Proxmox через restic. Один
-статический бинарник, системные таймеры, проверка целостности, восстановление предсказуемыми
-командами.
+Шифрованные резервные копии Linux-хостов с частичной поддержкой Proxmox через restic. Один статический бинарник, системные таймеры, проверка целостности, восстановление предсказуемыми командами.
 
-Этот индекс нужен, чтобы быстро найти раздел под задачу: установку, конфиг, эксплуатацию, restore
-или диагностику.
+Этот индекс нужен, чтобы быстро найти раздел под задачу: установку, конфиг, эксплуатацию, restore или диагностику.
 
-Сайт: [jealousmoon.com/projects/vault](https://jealousmoon.com/projects/vault/) ·
-[русская версия](https://jealousmoon.com/ru/proekty/vault/).
+Сайт: [jealousmoon.com/projects/vault](https://jealousmoon.com/projects/vault/) · [русская версия](https://jealousmoon.com/ru/proekty/vault/).
 
 [English](../README.md) · Русский
 
@@ -47,8 +43,7 @@ sudo jealous-vault doctor
 sudo jealous-vault backup
 ```
 
-`init` создаёт `/etc/jealous-vault/config.toml` и файл пароля репозитория. `install` ставит сервисы
-и таймеры. `doctor` проверяет окружение и репозиторий.
+`init` создаёт `/etc/jealous-vault/config.toml` и файл пароля репозитория. `install` ставит сервисы и таймеры. `doctor` проверяет окружение и репозиторий.
 
 ## Требования
 
@@ -67,21 +62,19 @@ sudo jealous-vault backup
 | [configuration.md](configuration.md)               | все секции конфига и примеры                                       |
 | [operations.md](operations.md)                     | ежедневная эксплуатация: таймеры, check, verify, retention, алерты |
 | [restore.md](restore.md)                           | восстановление файлов, БД, VM/CT и проверка                        |
+| [DRILL.md](DRILL.md)                               | restore drill: files, service, db, full; отчёты, расписание        |
 | [platforms-and-limits.md](platforms-and-limits.md) | платформы, Termux, NixOS, Proxmox, ограничения                     |
 | [troubleshooting.md](troubleshooting.md)           | типовые ошибки и диагностика                                       |
 
 ## Статус
 
-Beta. На живых Linux-хостах, S3, SFTP, PostgreSQL и MariaDB ядро работает. Проверено восстановление
-всех репозиториев в отдельный LXC.
+Beta. На живых Linux-хостах, S3, SFTP, PostgreSQL и MariaDB ядро работает. Проверено восстановление всех репозиториев в отдельный LXC.
 
 Проверено отдельно:
 
 - установка и обновление с релизных ассетов: конфиг и юниты сохраняются, старые снапшоты остаются;
-- PostgreSQL и MariaDB по 20 млн строк / ~20 ГиБ: дамп, upload, restore из репозитория, сверка
-  `count/sum` - совпало;
-- 6 реальных хостов и 20 LXC одновременно в одно S3-хранилище: по ~1.16 ГиБ уникальных данных на
-  контейнер, всего ~22 ГиБ; сеть, блокировки, multi-job, Termux.
+- PostgreSQL и MariaDB по 20 млн строк / ~20 ГиБ: дамп, upload, restore из репозитория, сверка `count/sum` - совпало;
+- 6 реальных хостов и 20 LXC одновременно в одно S3-хранилище: по ~1.16 ГиБ уникальных данных на контейнер, всего ~22 ГиБ; сеть, блокировки, multi-job, Termux.
 
 До массового запуска не хватает:
 

@@ -46,6 +46,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 		testRestoreCommand(ctx),
 		checkCommand(ctx),
 		doctorCommand(ctx),
+		drillCommand(ctx),
 		freshnessCommand(ctx),
 		statusCommand(ctx),
 		historyCommand(),
@@ -351,6 +352,20 @@ func doctorCommand(ctx context.Context) *cobra.Command {
 		configFlag(c)
 		c.Flags().Bool("json", false, "print the report as JSON")
 		c.Flags().Bool("send-test-email", false, "send one test email and report the result")
+		verboseFlag(c)
+	})
+}
+
+func drillCommand(ctx context.Context) *cobra.Command {
+	return legacyCommand(ctx, "drill", "run a restore drill: files, service, db or full", cmdDrill, func(c *cobra.Command) {
+		configFlag(c)
+		c.Flags().String("snapshot", "latest", "snapshot ID or latest")
+		c.Flags().String("level", "", "drill level: files, service, db or full")
+		c.Flags().String("target", "", "directory for the drill restore")
+		c.Flags().Bool("keep", false, "keep the automatic drill directory")
+		c.Flags().Bool("no-notify", false, "do not send alerts")
+		c.Flags().Bool("yes", false, "confirm a restore into a system directory")
+		c.Flags().Bool("json", false, "print the report as JSON")
 		verboseFlag(c)
 	})
 }

@@ -16,19 +16,18 @@ This section explains what runs on a schedule and what to do when something fail
 | `jealous-vault backup --dry-run`  | show what would be backed up                          |
 | `jealous-vault check`             | verify repository integrity                           |
 | `jealous-vault test-restore`      | test restore with verification                        |
+| `jealous-vault drill`             | restore drill: files, service, db or full             |
 | `jealous-vault freshness`         | check the age of the last backup                      |
 | `jealous-vault repo unlock`       | remove stale restic locks                             |
 | `jealous-vault export-restic-env` | print RESTIC\_\* variables and a ready restic command |
 
 All commands accept `--config`; most accept `--json` and `--verbose`.
 
-`status` exits non-zero when the last backup failed or is older than `--max-age` (25h by default).
-This is useful for monitoring.
+`status` exits non-zero when the last backup failed or is older than `--max-age` (25h by default). This is useful for monitoring.
 
 ## Manual restic fallback
 
-`export-restic-env` (alias `print-restic-command`) prints the repository variables and restic
-commands for the current job:
+`export-restic-env` (alias `print-restic-command`) prints the repository variables and restic commands for the current job:
 
 ```sh
 sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml
@@ -38,14 +37,22 @@ sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml --j
 The output contains:
 
 - `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` and `RESTIC_CACHE_DIR`;
-- a `source` line for `repository.env_file`, so S3 and other backend credentials are loaded without
-  being printed;
+- a `source` line for `repository.env_file`, so S3 and other backend credentials are loaded without being printed;
 - a `restic backup` command with the host, excludes, tags and paths from the config;
 - `restic forget` with the retention policy, and `restic snapshots`/`restic restore` examples.
 
-It prints paths to secrets, not their contents. It does not need restic installed and does not
-touch the repository. Use it when the agent is unavailable, before an upgrade, or as the emergency
-path for the operator who inherits the host.
+It prints paths to secrets, not their contents. It does not need restic installed and does not touch the repository. Use it when the agent is unavailable, before an upgrade, or as the emergency path for the operator who inherits the host.
+
+## Restore drill
+
+`drill` restores a snapshot into a scratch directory and can also check a service and a scratch database. It is opt-in: `[drill] enabled = false` by default. A manual `jealous-vault drill` works without enabling it; `install` creates the drill timer only when `enabled = true`.
+
+```sh
+sudo jealous-vault drill --level files
+sudo jealous-vault drill --level full --json
+```
+
+The report is written to history as `kind: drill`; `status` shows the last drill. Full contract, levels, hooks and PostgreSQL/MySQL recipes: [DRILL.md](DRILL.md).
 
 ## Backup lifecycle
 
@@ -58,8 +65,7 @@ path for the operator who inherits the host.
 7. Write state/history/audit.
 8. Alerts on failure; on success only when `notify_on_success` is enabled.
 
-Backup is idempotent: a repeated run creates a new snapshot, while restic deduplication keeps the
-repository from growing by the same data.
+Backup is idempotent: a repeated run creates a new snapshot, while restic deduplication keeps the repository from growing by the same data.
 
 ## Timers
 
@@ -99,8 +105,7 @@ jealous-vault check --config /etc/jealous-vault/config.toml
 jealous-vault check --read-data-subset 10%
 ```
 
-`check` verifies repository structure and snapshots. `read_data_subset` also reads part of the pack
-files; set the percentage in the config or with a flag.
+`check` verifies repository structure and snapshots. `read_data_subset` also reads part of the pack files; set the percentage in the config or with a flag.
 
 The timer starts check, and the result goes to state/history. A failure sends an alert.
 
@@ -120,9 +125,7 @@ jealous-vault test-restore --snapshot latest --level files --keep
 - removes the temporary directory unless `--keep` is set;
 - writes state/history/audit and sends an alert on failure.
 
-If retention later deletes the verified snapshot, `doctor` warns about it. This is expected: the
-`last_verify` record keeps the ID, but the snapshot is gone. Run `test-restore` again to refresh the
-check.
+If retention later deletes the verified snapshot, `doctor` warns about it. This is expected: the `last_verify` record keeps the ID, but the snapshot is gone. Run `test-restore` again to refresh the check.
 
 For a service check:
 
@@ -134,14 +137,11 @@ post_hook = "systemctl restart myapp && curl -fsS http://127.0.0.1:8080/health"
 
 ## Freshness
 
-`freshness` checks that the last successful backup is not older than `max_age`. If the backup timer
-is disabled, `respect_backup_timer=true` reports a timer problem instead of a stale snapshot. For
-Termux/non-systemd hosts, set `respect_backup_timer=false`.
+`freshness` checks that the last successful backup is not older than `max_age`. If the backup timer is disabled, `respect_backup_timer=true` reports a timer problem instead of a stale snapshot. For Termux/non-systemd hosts, set `respect_backup_timer=false`.
 
 ## Retention
 
-The `keep_last/daily/weekly/monthly` policy runs after a successful backup. `prune=true` frees space
-but rewrites the repository and can take time.
+The `keep_last/daily/weekly/monthly` policy runs after a successful backup. `prune=true` frees space but rewrites the repository and can take time.
 
 Examples:
 
@@ -180,8 +180,7 @@ A host can have several independent jobs. Each has:
 - its own password/repository;
 - units with the `-<job>` suffix.
 
-Example: `/usr`, `/opt` and `/etc` in separate repositories. The upside is independent retention and
-alerts; the downside is no deduplication between repositories.
+Example: `/usr`, `/opt` and `/etc` in separate repositories. The upside is independent retention and alerts; the downside is no deduplication between repositories.
 
 Install and remove per config:
 
@@ -192,27 +191,23 @@ jealous-vault uninstall --config /etc/jealous-vault/usr.toml
 
 ## Doctor checks
 
-`doctor` is the main support tool. It checks config and secret permissions, restic, repository
-access, paths, timers, state and history format, and the backup profile. It warns when:
+`doctor` is the main support tool. It checks config and secret permissions, restic, repository access, paths, timers, state and history format, and the backup profile. It warns when:
 
 - state or history predates format version 1;
 - a timer unit is installed but disabled, or enabled but not active;
 - `backup.profile` is not `host`, `vm-dumps` or `custom`.
 
-It fails when a config, password, env or key file is missing or readable by group/others. That is
-deliberate: the agent refuses to run with an exposed secret.
+It fails when a config, password, env or key file is missing or readable by group/others. That is deliberate: the agent refuses to run with an exposed secret.
 
 ## Locks
 
-The local lock (`lock_file`) prevents two processes of the same job from running together. If a
-process was killed, the lock can remain; `backup`/`check` clear stale locks. For restic use:
+The local lock (`lock_file`) prevents two processes of the same job from running together. If a process was killed, the lock can remain; `backup`/`check` clear stale locks. For restic use:
 
 ```sh
 jealous-vault repo unlock --config /etc/jealous-vault/config.toml
 ```
 
-Do not delete restic lock files by hand until you are sure no process is running. For an SFTP
-repository, lock files must belong to the repository user; root-owned files break the next backup.
+Do not delete restic lock files by hand until you are sure no process is running. For an SFTP repository, lock files must belong to the repository user; root-owned files break the next backup.
 
 ## Audit and history
 

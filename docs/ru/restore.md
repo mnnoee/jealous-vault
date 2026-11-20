@@ -11,8 +11,7 @@ jealous-vault snapshots --config /etc/jealous-vault/config.toml
 jealous-vault snapshots --all
 ```
 
-`--all` показывает снапшоты всех хостов в общем репозитории. По умолчанию фильтр по `host` из
-конфига.
+`--all` показывает снапшоты всех хостов в общем репозитории. По умолчанию фильтр по `host` из конфига.
 
 Оценка размера без записи:
 
@@ -29,12 +28,9 @@ sudo jealous-vault restore \
   --target /srv/restore --yes
 ```
 
-Команда восстанавливает всю файловую систему снапшота в указанный каталог. Пути внутри target
-сохраняют структуру: `/etc/hosts` окажется в `/srv/restore/etc/hosts`.
+Команда восстанавливает всю файловую систему снапшота в указанный каталог. Пути внутри target сохраняют структуру: `/etc/hosts` окажется в `/srv/restore/etc/hosts`.
 
-`/srv` - системный каталог, поэтому для restore всего снапшота нужен `--yes`, даже если цель -
-подкаталог. То же относится к `/etc`, `/home`, `/var`, `/opt` и другим системным каталогам верхнего
-уровня. Restore с `--include` считается выборочным и `--yes` не требует.
+`/srv` - системный каталог, поэтому для restore всего снапшота нужен `--yes`, даже если цель - подкаталог. То же относится к `/etc`, `/home`, `/var`, `/opt` и другим системным каталогам верхнего уровня. Restore с `--include` считается выборочным и `--yes` не требует.
 
 Отдельные пути:
 
@@ -66,8 +62,7 @@ sudo jealous-vault restore --snapshot latest --target / --yes
 sudo jealous-vault restore --snapshot latest --target /srv/restore --yes --verify
 ```
 
-Перед таким restore остановите сервисы и убедитесь, что у вас есть консольный доступ. Лучше
-восстанавливать в отдельный каталог и затем переносить данные.
+Перед таким restore остановите сервисы и убедитесь, что у вас есть консольный доступ. Лучше восстанавливать в отдельный каталог и затем переносить данные.
 
 ## Test-restore
 
@@ -108,8 +103,7 @@ Read-only просмотр снапшота через FUSE:
 sudo jealous-vault mount --config /etc/jealous-vault/config.toml
 ```
 
-Нужен `fusermount`/FUSE. Это удобно, когда нужно найти файл, не разворачивая весь снапшот. Точка
-монтирования и поведение зависят от restic; после работы размонтируйте.
+Нужен `fusermount`/FUSE. Это удобно, когда нужно найти файл, не разворачивая весь снапшот. Точка монтирования и поведение зависят от restic; после работы размонтируйте.
 
 ## Рецепты
 
@@ -171,6 +165,68 @@ mariadb -N -e 'SELECT count(*) FROM app_restore....'
 
 Для большой БД сравните не только count, но и контрольные суммы/`sum(id)`/ `sum(length(...))`.
 
+## PostgreSQL scratch database
+
+Restore drill для PostgreSQL восстанавливает каталог дампов из снапшота и загружает один дамп в scratch-базу. Уровни `drill db` и `drill full` передают восстановленный каталог в `JM_DRILL_DUMP_DIR`; скрипт ниже - готовый `db_script`.
+
+Создайте отдельную роль с `CREATEDB`:
+
+```sql
+CREATE ROLE jv_drill LOGIN CREATEDB PASSWORD '<password>';
+```
+
+```sh
+#!/bin/sh
+set -eu
+: "${JM_DRILL_DUMP_DIR:?run this script from jealous-vault drill}"
+
+: "${PGHOST:=127.0.0.1}"
+: "${PGUSER:=jv_drill}"
+: "${PGPASSWORD_FILE:=/etc/jealous-vault/drill.pass}"
+export PGPASSWORD="$(cat "$PGPASSWORD_FILE")"
+
+DUMP="$JM_DRILL_DUMP_DIR/postgres-app.dump"
+test -f "$DUMP"
+
+psql -v ON_ERROR_STOP=1 -d postgres \
+  -c 'DROP DATABASE IF EXISTS app_drill' >/dev/null
+psql -v ON_ERROR_STOP=1 -d postgres \
+  -c 'CREATE DATABASE app_drill' >/dev/null
+pg_restore --no-owner --no-acl -d app_drill "$DUMP"
+
+ROWS="$(psql -At -d app_drill \
+  -c 'SELECT count(*) FROM important_table')"
+test "$ROWS" -gt 0
+echo "rows=$ROWS"
+```
+
+```sh
+sudo install -m 0700 drill-postgres.sh /etc/jealous-vault/drill-postgres.sh
+sudo install -m 0600 /dev/null /etc/jealous-vault/drill.pass
+# положите пароль в drill.pass, затем:
+```
+
+```toml
+[drill]
+enabled = true
+level = "db"
+db_script = "/etc/jealous-vault/drill-postgres.sh"
+```
+
+Имя дампа берётся из `[backup.dumps]`: дампы PostgreSQL называются `postgres-<database>.dump`. Если у вас иначе, посмотрите `"$JM_DRILL_DUMP_DIR"` и поправьте `DUMP`.
+
+Для MariaDB/MySQL схема та же:
+
+```sh
+mariadb -e 'DROP DATABASE IF EXISTS app_drill; CREATE DATABASE app_drill'
+mariadb app_drill < "$JM_DRILL_DUMP_DIR/mysql-app.sql"
+ROWS="$(mariadb -N -e 'SELECT COUNT(*) FROM app_drill.important_table')"
+test "$ROWS" -gt 0
+echo "rows=$ROWS"
+```
+
+`drill db` восстанавливает только `[backup.dumps].dir`; `drill full` восстанавливает весь снапшот и затем запускает тот же скрипт. Уровни, формат отчёта и расписание - в [DRILL.md](DRILL.md).
+
 ## Restore VM/CT (Proxmox)
 
 Нужны `[proxmox]` и снапшот с архивами `vzdump`:
@@ -191,8 +247,7 @@ sudo jealous-vault restore-vm --config /etc/jealous-vault/config.toml \
 --keep            оставить временный каталог
 ```
 
-`restore-vm` распаковывает архив из снапшота и вызывает `qmrestore`/ `pct restore`. Кластер,
-миграции и Windows VM требуют отдельной проверки.
+`restore-vm` распаковывает архив из снапшота и вызывает `qmrestore`/ `pct restore`. Кластер, миграции и Windows VM требуют отдельной проверки.
 
 ## Безопасность restore
 
@@ -201,8 +256,7 @@ sudo jealous-vault restore-vm --config /etc/jealous-vault/config.toml \
 - Остановите БД/сервисы перед восстановлением их файлов.
 - Проверьте свободное место: снапшот может быть больше, чем кажется.
 - Не восстанавливайте поверх работающей БД; используйте дамп.
-- Для unprivileged LXC device-node и SELinux xattr могут не создаться; это ограничение контейнера,
-  не данных.
+- Для unprivileged LXC device-node и SELinux xattr могут не создаться; это ограничение контейнера, не данных.
 
 ## Проверка на практике
 
@@ -213,17 +267,13 @@ sudo jealous-vault restore-vm --config /etc/jealous-vault/config.toml \
 | PostgreSQL | ~22 ГБ    | 8m18s | 9m49s / 20.8 ГиБ | download 5m56s + verify, `pg_restore` 22m | count/sum совпали |
 | MariaDB    | ~21.8 ГиБ | 5m04s | 9m30s / 19.9 ГиБ | stream load 27m57s                        | count/sum совпали |
 
-Это не гарантия для сотен гигабайт, но показывает, что дамп/upload/restore работают на десятках
-гигабайт и что данные не теряются.
+Это не гарантия для сотен гигабайт, но показывает, что дамп/upload/restore работают на десятках гигабайт и что данные не теряются.
 
 ## Типовые проблемы
 
 - Если target не пустой, используйте `--overwrite` или отдельный каталог.
 - Если restore в `/` отклонён, добавьте `--yes` после проверки.
-- `mknod: operation not permitted`: unprivileged LXC не может создать device-node; исключите его или
-  используйте привилегированный CT.
-- `xattr: operation not permitted`: например, `security.selinux`; используйте `--exclude-xattr`,
-  если он доступен, или привилегированный CT.
-- `permission denied` при verify: файлы восстановлены с ограниченными правами; проверяйте от root
-  или в каталоге с корректными правами.
+- `mknod: operation not permitted`: unprivileged LXC не может создать device-node; исключите его или используйте привилегированный CT.
+- `xattr: operation not permitted`: например, `security.selinux`; используйте `--exclude-xattr`, если он доступен, или привилегированный CT.
+- `permission denied` при verify: файлы восстановлены с ограниченными правами; проверяйте от root или в каталоге с корректными правами.
 - Не хватает места: проверьте `--estimate`, `min_free`, кэш restic.

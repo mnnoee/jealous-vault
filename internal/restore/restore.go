@@ -32,6 +32,9 @@ type Plan struct {
 	Includes  []string
 	Overwrite string
 	Verify    bool
+	// RetryLock is passed to restic restore. Empty keeps the default
+	// fail-fast behaviour; drill sets it so a lock from another host waits.
+	RetryLock string
 }
 
 // New validates the arguments and fills in defaults.
@@ -121,6 +124,7 @@ func (p *Plan) Execute(ctx context.Context, client *restic.Client) error {
 		Includes:  p.Includes,
 		Overwrite: p.Overwrite,
 		Verify:    p.Verify,
+		RetryLock: p.RetryLock,
 	})
 }
 

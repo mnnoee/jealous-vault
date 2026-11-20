@@ -1,7 +1,6 @@
 # Security
 
-Website: [jealousmoon.com/projects/vault](https://jealousmoon.com/projects/vault/) ·
-[Russian version](https://jealousmoon.com/ru/proekty/vault/).
+Website: [jealousmoon.com/projects/vault](https://jealousmoon.com/projects/vault/) · [Russian version](https://jealousmoon.com/ru/proekty/vault/).
 
 English · [Русский](SECURITY.ru.md)
 
@@ -21,9 +20,7 @@ jealous-vault version
 
 ## Reporting a vulnerability
 
-**Do not open a public issue.** Email **vault@jealousmoon.com** with the subject
-`[SECURITY] JealousVault`, or use a private security advisory in Forgejo if it is available.
-Personal fallback: **me@mnnoee.ru**.
+**Do not open a public issue.** Email **vault@jealousmoon.com** with the subject `[SECURITY] JealousVault`, or use a private security advisory in Forgejo if it is available. Personal fallback: **me@mnnoee.ru**.
 
 Include:
 
@@ -70,10 +67,8 @@ Out of scope:
 - `/etc/jealous-vault` is excluded from backups by default.
 - The agent runs as root because it reads system paths; run it only on a trusted host.
 - There are no inbound ports: the agent is only a restic and alerting client.
-- Secrets are kept out of process arguments where possible; the MySQL password goes through a
-  temporary `--defaults-extra-file`.
-- Alerts contain hosts, paths, error classes and stderr fragments; make sure the outbound channel is
-  trusted.
+- Secrets are kept out of process arguments where possible; the MySQL password goes through a temporary `--defaults-extra-file`.
+- Alerts contain hosts, paths, error classes and stderr fragments; make sure the outbound channel is trusted.
 
 ## Hardening
 
@@ -88,6 +83,4 @@ Recommended:
 
 ## Safe harbor
 
-I will not pursue researchers who act in good faith, stay within their own data and test systems, do
-not harm availability and do not expose other people's secrets. If you are unsure, write before
-starting the test.
+I will not pursue researchers who act in good faith, stay within their own data and test systems, do not harm availability and do not expose other people's secrets. If you are unsure, write before starting the test.

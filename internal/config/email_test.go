@@ -23,6 +23,10 @@ func TestEmailValidation(t *testing.T) {
 	cfg.VerifyTimeout = 2 * time.Hour
 	cfg.VerifyMaxSize = 10_000_000_000
 	cfg.VerifyMinFree = 20_000_000_000
+	cfg.DrillTimeout = 2 * time.Hour
+	cfg.DrillDBTimeout = 30 * time.Minute
+	cfg.DrillMaxSize = 10_000_000_000
+	cfg.DrillMinFree = 20_000_000_000
 	cfg.EmailTimeout = 15 * time.Second
 
 	cfg.Notify.Email = Email{

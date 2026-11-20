@@ -105,6 +105,7 @@ Commands:
   test-restore  restore into a separate directory
   check         verify repository integrity
   doctor        check restic, config, repository, paths and timers
+  drill         run a restore drill: files, service, db or full
   freshness     check the backup age and the backup timer
   status        show the last run and whether the backup is fresh
   history       show recent backup, check and verify runs
@@ -157,6 +158,10 @@ func auditOutcome(err error) (result, message string) {
 }
 
 func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
+	return resticClientTo(cfg, log, os.Stdout)
+}
+
+func resticClientTo(cfg *config.Config, log *slog.Logger, out io.Writer) *restic.Client {
 	return restic.New(restic.Options{
 		Binary:       cfg.ResticBinary,
 		Repository:   cfg.Repository.URL,
@@ -165,7 +170,7 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 		CacheDir:     cfg.ResticCacheDir(),
 		Extra:        cfg.ResticExtraOptions(),
 		Logger:       log,
-		Output:       os.Stdout,
+		Output:       out,
 	})
 }
 
@@ -2047,6 +2052,7 @@ type statusOutput struct {
 	LastSuccess *state.Run `json:"last_success,omitempty"`
 	LastCheck   *state.Run `json:"last_check,omitempty"`
 	LastVerify  *state.Run `json:"last_verify,omitempty"`
+	LastDrill   *state.Run `json:"last_drill,omitempty"`
 }
 
 func cmdStatus(args []string) error {
@@ -2089,6 +2095,7 @@ func cmdStatus(args []string) error {
 		LastSuccess: st.LastSuccess,
 		LastCheck:   st.LastCheck,
 		LastVerify:  st.LastVerify,
+		LastDrill:   st.LastDrill,
 	}
 	if running && runInfo.PID != 0 {
 		out.CurrentRun = &runInfo
@@ -2117,6 +2124,7 @@ func cmdStatus(args []string) error {
 		printStatusLine("last success", st.LastSuccess, now)
 		printStatusLine("last check", st.LastCheck, now)
 		printStatusLine("last verify", st.LastVerify, now)
+		printStatusLine("last drill", st.LastDrill, now)
 		if stale {
 			fmt.Printf("\nbackup is stale, max age %s\n", maxAge.String())
 		}

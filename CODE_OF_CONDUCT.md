@@ -4,9 +4,7 @@ English · [Русский](CODE_OF_CONDUCT.ru.md)
 
 ## Commitment
 
-Participation in the project should be free from harassment for everyone, regardless of experience,
-age, appearance, nationality, language, religion, sexual orientation, gender identity, health or
-skill level.
+Participation in the project should be free from harassment for everyone, regardless of experience, age, appearance, nationality, language, religion, sexual orientation, gender identity, health or skill level.
 
 ## Expected behaviour
 
@@ -30,9 +28,7 @@ This code applies to issues, pull requests, discussions, chats and project-relat
 
 ## Reporting
 
-Email **vault@jealousmoon.com** with the subject `[CONDUCT] JealousVault` (personal fallback:
-**me@mnnoee.ru**). Reports are handled confidentially. Describe what happened, where, and who was
-affected; include links or screenshots if they do not expose other people's secrets.
+Email **vault@jealousmoon.com** with the subject `[CONDUCT] JealousVault` (personal fallback: **me@mnnoee.ru**). Reports are handled confidentially. Describe what happened, where, and who was affected; include links or screenshots if they do not expose other people's secrets.
 
 ## Consequences
 
@@ -43,8 +39,7 @@ The maintainer may:
 3. temporarily or permanently restrict participation;
 4. report serious cases to the platform.
 
-The maintainer reviews each report on the facts and does not disclose the reporter's identity unless
-necessary.
+The maintainer reviews each report on the facts and does not disclose the reporter's identity unless necessary.
 
 ## Attribution
 

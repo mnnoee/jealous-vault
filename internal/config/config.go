@@ -50,6 +50,7 @@ type Config struct {
 	Schedule     Schedule  `toml:"schedule"`
 	Freshness    Freshness `toml:"freshness"`
 	Verify       Verify    `toml:"verify"`
+	Drill        Drill     `toml:"drill"`
 	Proxmox      Proxmox   `toml:"proxmox"`
 	Copy         Copy      `toml:"copy"`
 	Check        Check     `toml:"check"`
@@ -69,6 +70,10 @@ type Config struct {
 	VerifyTimeout        time.Duration `toml:"-"`
 	VerifyMaxSize        int64         `toml:"-"`
 	VerifyMinFree        int64         `toml:"-"`
+	DrillTimeout         time.Duration `toml:"-"`
+	DrillDBTimeout       time.Duration `toml:"-"`
+	DrillMaxSize         int64         `toml:"-"`
+	DrillMinFree         int64         `toml:"-"`
 	RetryDelay           time.Duration `toml:"-"`
 	EmailPassword        string        `toml:"-"`
 	EmailTimeout         time.Duration `toml:"-"`
@@ -168,6 +173,21 @@ type Verify struct {
 	Timeout  string `toml:"timeout"`
 	Schedule string `toml:"schedule"`
 	PostHook string `toml:"post_hook"`
+}
+
+// Drill controls a full restore drill: files, service, database or all.
+type Drill struct {
+	Enabled     bool   `toml:"enabled"`
+	Level       string `toml:"level"`
+	Schedule    string `toml:"schedule"`
+	Target      string `toml:"target"`
+	MaxSize     string `toml:"max_size"`
+	MinFree     string `toml:"min_free"`
+	Timeout     string `toml:"timeout"`
+	Keep        bool   `toml:"keep"`
+	ServiceHook string `toml:"service_hook"`
+	DBScript    string `toml:"db_script"`
+	DBTimeout   string `toml:"db_timeout"`
 }
 
 // Proxmox controls vzdump and VM restore.
@@ -289,6 +309,14 @@ func Default() *Config {
 			MinFree:  "20GB",
 			Timeout:  "2h",
 			Schedule: "Sun *-*-* 05:00:00",
+		},
+		Drill: Drill{
+			Level:     "files",
+			Schedule:  "Sun *-*-* 06:00:00",
+			MaxSize:   "10GB",
+			MinFree:   "20GB",
+			Timeout:   "2h",
+			DBTimeout: "30m",
 		},
 		Copy: Copy{
 			Schedule: "*-*-* 05:00:00",
@@ -418,6 +446,24 @@ func (c *Config) finish() error {
 	}
 	if c.Verify.Schedule == "" {
 		c.Verify.Schedule = "Sun *-*-* 05:00:00"
+	}
+	if c.Drill.Level == "" {
+		c.Drill.Level = "files"
+	}
+	if c.Drill.Schedule == "" {
+		c.Drill.Schedule = "Sun *-*-* 06:00:00"
+	}
+	if c.Drill.MaxSize == "" {
+		c.Drill.MaxSize = "10GB"
+	}
+	if c.Drill.MinFree == "" {
+		c.Drill.MinFree = "20GB"
+	}
+	if c.Drill.Timeout == "" {
+		c.Drill.Timeout = "2h"
+	}
+	if c.Drill.DBTimeout == "" {
+		c.Drill.DBTimeout = "30m"
 	}
 	if c.Proxmox.Schedule == "" {
 		c.Proxmox.Schedule = "*-*-* 02:00:00"
@@ -595,6 +641,18 @@ func (c *Config) finish() error {
 	if c.VerifyMinFree, err = ParseSize(c.Verify.MinFree); err != nil {
 		return fmt.Errorf("verify.min_free: %w", err)
 	}
+	if c.DrillTimeout, err = parseDuration("drill.timeout", c.Drill.Timeout); err != nil {
+		return err
+	}
+	if c.DrillDBTimeout, err = parseDuration("drill.db_timeout", c.Drill.DBTimeout); err != nil {
+		return err
+	}
+	if c.DrillMaxSize, err = ParseSize(c.Drill.MaxSize); err != nil {
+		return fmt.Errorf("drill.max_size: %w", err)
+	}
+	if c.DrillMinFree, err = ParseSize(c.Drill.MinFree); err != nil {
+		return fmt.Errorf("drill.min_free: %w", err)
+	}
 	if c.RetryDelay, err = parseDuration("backup.retry_delay", c.Backup.RetryDelay); err != nil {
 		return err
 	}
@@ -712,6 +770,32 @@ func (c *Config) Validate() error {
 	}
 	if c.VerifyTimeout <= 0 {
 		return errors.New("verify.timeout must be positive")
+	}
+	switch c.Drill.Level {
+	case "files", "service", "db", "full":
+	default:
+		return fmt.Errorf("drill.level %q must be files, service, db or full", c.Drill.Level)
+	}
+	if c.Drill.Enabled && (c.Drill.Level == "service" || c.Drill.Level == "full") && c.Drill.ServiceHook == "" {
+		return errors.New("drill.service_hook is required for the service and full levels when drill.enabled is true")
+	}
+	if c.Drill.Enabled && (c.Drill.Level == "db" || c.Drill.Level == "full") && c.Drill.DBScript == "" {
+		return errors.New("drill.db_script is required for the db and full levels when drill.enabled is true")
+	}
+	if c.Drill.Target != "" && !filepath.IsAbs(c.Drill.Target) {
+		return fmt.Errorf("drill.target %q must be absolute", c.Drill.Target)
+	}
+	if c.DrillMaxSize <= 0 {
+		return errors.New("drill.max_size must be positive")
+	}
+	if c.DrillMinFree <= 0 {
+		return errors.New("drill.min_free must be positive")
+	}
+	if c.DrillTimeout <= 0 {
+		return errors.New("drill.timeout must be positive")
+	}
+	if c.DrillDBTimeout <= 0 {
+		return errors.New("drill.db_timeout must be positive")
 	}
 	if c.Verify.Enabled && c.Verify.Schedule == "" {
 		return errors.New("verify.schedule is empty")

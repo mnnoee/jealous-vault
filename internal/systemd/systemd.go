@@ -29,6 +29,8 @@ const (
 	FreshnessTimer   = "jealous-vault-freshness.timer"
 	VerifyService    = "jealous-vault-verify.service"
 	VerifyTimer      = "jealous-vault-verify.timer"
+	DrillService     = "jealous-vault-drill.service"
+	DrillTimer       = "jealous-vault-drill.timer"
 	ProxmoxService   = "jealous-vault-proxmox.service"
 	ProxmoxTimer     = "jealous-vault-proxmox.timer"
 	CopyService      = "jealous-vault-copy.service"
@@ -66,6 +68,8 @@ type unitNames struct {
 	freshnessTimer   string
 	verifyService    string
 	verifyTimer      string
+	drillService     string
+	drillTimer       string
 	proxmoxService   string
 	proxmoxTimer     string
 	copyService      string
@@ -101,6 +105,9 @@ func FreshnessTimerName(job string) string { return unitName("freshness", job, "
 
 // VerifyTimerName returns the verify timer unit for one job.
 func VerifyTimerName(job string) string { return unitName("verify", job, ".timer") }
+
+// DrillTimerName returns the drill timer unit for one job.
+func DrillTimerName(job string) string { return unitName("drill", job, ".timer") }
 
 // ProxmoxTimerName returns the Proxmox timer unit for one job.
 func ProxmoxTimerName(job string) string { return unitName("proxmox", job, ".timer") }
@@ -155,6 +162,8 @@ func (i *Installer) names() unitNames {
 		freshnessTimer:   unitName("freshness", job, ".timer"),
 		verifyService:    unitName("verify", job, ".service"),
 		verifyTimer:      unitName("verify", job, ".timer"),
+		drillService:     unitName("drill", job, ".service"),
+		drillTimer:       unitName("drill", job, ".timer"),
 		proxmoxService:   unitName("proxmox", job, ".service"),
 		proxmoxTimer:     unitName("proxmox", job, ".timer"),
 		copyService:      unitName("copy", job, ".service"),
@@ -226,6 +235,14 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 			_ = os.Remove(filepath.Join(i.UnitDir, name))
 		}
 	}
+	if cfg.Drill.Enabled {
+		units[n.drillService] = hardened(drillService(i.BinaryPath, i.ConfigPath, cache), "")
+		units[n.drillTimer] = drillTimer(cfg.Drill.Schedule, n.drillService)
+	} else {
+		for _, name := range []string{n.drillTimer, n.drillService} {
+			_ = os.Remove(filepath.Join(i.UnitDir, name))
+		}
+	}
 	if cfg.Proxmox.Enabled {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
 			return err
@@ -262,6 +279,9 @@ func (i *Installer) Install(ctx context.Context, cfg *config.Config) error {
 	timers := []string{n.backupTimer, n.checkTimer, n.freshnessTimer}
 	if cfg.Verify.Enabled {
 		timers = append(timers, n.verifyTimer)
+	}
+	if cfg.Drill.Enabled {
+		timers = append(timers, n.drillTimer)
 	}
 	if cfg.Proxmox.Enabled {
 		timers = append(timers, n.proxmoxTimer)
@@ -308,6 +328,7 @@ func (i *Installer) Uninstall(ctx context.Context) error {
 		n.checkTimer, n.checkService,
 		n.freshnessTimer, n.freshnessService,
 		n.verifyTimer, n.verifyService,
+		n.drillTimer, n.drillService,
 		n.proxmoxTimer, n.proxmoxService,
 		n.copyTimer, n.copyService,
 	} {
@@ -330,6 +351,7 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 	checkName := periodicName("check", i.Job)
 	freshnessName := periodicName("freshness", i.Job)
 	verifyName := periodicName("verify", i.Job)
+	drillName := periodicName("drill", i.Job)
 	proxmoxName := periodicName("proxmox", i.Job)
 	copyName := periodicName("copy", i.Job)
 	scripts := map[string]string{
@@ -339,6 +361,9 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 	}
 	if cfg.Verify.Enabled {
 		scripts[filepath.Join(i.PeriodicDir, "weekly", verifyName)] = periodicScript(i.BinaryPath, "test-restore", i.ConfigPath)
+	}
+	if cfg.Drill.Enabled {
+		scripts[filepath.Join(i.PeriodicDir, "weekly", drillName)] = periodicScript(i.BinaryPath, "drill", i.ConfigPath)
 	}
 	if cfg.Proxmox.Enabled {
 		if err := os.MkdirAll(cfg.Proxmox.DumpDir, 0o755); err != nil {
@@ -358,7 +383,7 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 		}
 		fmt.Fprintf(out, "wrote %s\n", path)
 	}
-	for _, name := range []string{verifyName, proxmoxName, copyName} {
+	for _, name := range []string{verifyName, drillName, proxmoxName, copyName} {
 		if _, ok := scripts[filepath.Join(i.PeriodicDir, "daily", name)]; ok {
 			continue
 		}
@@ -385,7 +410,7 @@ func (i *Installer) installOpenRC(ctx context.Context, cfg *config.Config, out i
 func (i *Installer) uninstallOpenRC(out io.Writer) error {
 	names := []string{
 		periodicName("backup", i.Job), periodicName("check", i.Job), periodicName("freshness", i.Job),
-		periodicName("verify", i.Job), periodicName("proxmox", i.Job), periodicName("copy", i.Job),
+		periodicName("verify", i.Job), periodicName("drill", i.Job), periodicName("proxmox", i.Job), periodicName("copy", i.Job),
 	}
 	for _, period := range []string{"daily", "weekly"} {
 		for _, name := range names {
@@ -425,7 +450,7 @@ func shellQuote(s string) string {
 func (i *Installer) installedTimers() []string {
 	n := i.names()
 	var timers []string
-	for _, name := range []string{n.backupTimer, n.checkTimer, n.freshnessTimer, n.verifyTimer, n.proxmoxTimer, n.copyTimer} {
+	for _, name := range []string{n.backupTimer, n.checkTimer, n.freshnessTimer, n.verifyTimer, n.drillTimer, n.proxmoxTimer, n.copyTimer} {
 		if _, err := os.Stat(filepath.Join(i.UnitDir, name)); err == nil {
 			timers = append(timers, name)
 		}
@@ -729,6 +754,42 @@ func verifyTimer(schedule, service string) string {
 	}
 	return fmt.Sprintf(`[Unit]
 Description=JealousVault test restore timer
+
+[Timer]
+OnCalendar=%s
+RandomizedDelaySec=1h
+Persistent=true
+AccuracySec=1m
+Unit=%s
+
+[Install]
+WantedBy=timers.target
+`, schedule, service)
+}
+
+func drillService(binary, configPath, cache string) string {
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault restore drill
+Documentation=https://github.com/mnnoee/jealous-vault
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+%sExecStart=%s drill --config %s
+TimeoutStartSec=0
+Nice=15
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+`, cache, quoteArg(binary), quoteArg(configPath))
+}
+
+func drillTimer(schedule, service string) string {
+	if schedule == "" {
+		schedule = "Sun *-*-* 06:00:00"
+	}
+	return fmt.Sprintf(`[Unit]
+Description=JealousVault restore drill timer
 
 [Timer]
 OnCalendar=%s

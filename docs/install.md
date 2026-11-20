@@ -2,8 +2,7 @@
 
 English · [Русский](ru/install.md)
 
-This section covers installing the agent from a release and upgrading it without losing the config,
-state or units.
+This section covers installing the agent from a release and upgrading it without losing the config, state or units.
 
 ## Release assets
 
@@ -48,8 +47,7 @@ THIRD-PARTY-LICENSES.md: OK
 Good "jealous-vault-release" signature for release with ED25519 key ...
 ```
 
-`curl -k` is acceptable only in a lab with a private CA; public releases must use normal TLS
-verification.
+`curl -k` is acceptable only in a lab with a private CA; public releases must use normal TLS verification.
 
 ## Install
 
@@ -68,9 +66,7 @@ restic version
 
 ### Debian/Ubuntu package
 
-The Forgejo release workflow builds `jealous-vault_<version>_amd64.deb` and
-`jealous-vault_<version>_arm64.deb`. The package does **not** depend on restic: restic is a
-`Suggests`, so install it separately. It also does not create a config or enable timers.
+The Forgejo release workflow builds `jealous-vault_<version>_amd64.deb` and `jealous-vault_<version>_arm64.deb`. The package does **not** depend on restic: restic is a `Suggests`, so install it separately. It also does not create a config or enable timers.
 
 ```sh
 sudo apt-get install restic
@@ -85,8 +81,7 @@ sudo jealous-vault install --prefix /usr/bin
 sudo jealous-vault doctor
 ```
 
-`--prefix /usr/bin` matters because the package binary is `/usr/bin/jealous-vault`. Package build
-details and removal are in [packaging/deb/README.md](../packaging/deb/README.md).
+`--prefix /usr/bin` matters because the package binary is `/usr/bin/jealous-vault`. Package build details and removal are in [packaging/deb/README.md](../packaging/deb/README.md).
 
 ## Initial setup
 
@@ -166,8 +161,7 @@ For cron/OpenRC/runit:
 sudo jealous-vault install --config /etc/jealous-vault/config.toml --init cron
 ```
 
-Without systemd, `install` writes a scheduler entry and `tick` decides what is due. For a custom
-loop:
+Without systemd, `install` writes a scheduler entry and `tick` decides what is due. For a custom loop:
 
 ```sh
 jealous-vault tick --config /etc/jealous-vault/config.toml
@@ -208,11 +202,9 @@ Upgrade keeps:
 - old snapshots;
 - unit and timer names.
 
-A new binary reads an older config. The reverse is not guaranteed: an older binary may not know new
-config keys. Do not downgrade without a copy of the config.
+A new binary reads an older config. The reverse is not guaranteed: an older binary may not know new config keys. Do not downgrade without a copy of the config.
 
-Tested: install and upgrade on a clean Debian 13 LXC; the config stayed the same, the number of
-units stayed the same, old snapshots remained and a new backup succeeded.
+Tested: install and upgrade on a clean Debian 13 LXC; the config stayed the same, the number of units stayed the same, old snapshots remained and a new backup succeeded.
 
 ## Uninstall
 
@@ -227,8 +219,7 @@ Run it for every job. `uninstall` stops timers and removes units but **does not 
 - state/history;
 - the binary.
 
-Remove the config and local state manually when the service is no longer needed. Keep the repository
-password somewhere else first: without it the data cannot be restored.
+Remove the config and local state manually when the service is no longer needed. Keep the repository password somewhere else first: without it the data cannot be restored.
 
 ## Platforms
 
@@ -237,6 +228,5 @@ password somewhere else first: without it the data cannot be restored.
 - OpenRC: `--init openrc`.
 - runit: `--init runit` or `tick` from a run script.
 - FreeBSD: rc.d/cron; paths and units differ. Tested through `tick`.
-- Termux: runsv/runit through `termux-services`, or `tick` + `termux-job-scheduler`; see
-  [platforms-and-limits.md](platforms-and-limits.md).
+- Termux: runsv/runit through `termux-services`, or `tick` + `termux-job-scheduler`; see [platforms-and-limits.md](platforms-and-limits.md).
 - NixOS: works with manual setup; no package/module yet.

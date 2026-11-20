@@ -55,6 +55,13 @@ func (i *Installer) installCron(cfg *config.Config, out io.Writer) error {
 			jitter   time.Duration
 		}{cfg.Verify.Schedule, "test-restore", 0})
 	}
+	if cfg.Drill.Enabled {
+		entries = append(entries, struct {
+			calendar string
+			command  string
+			jitter   time.Duration
+		}{cfg.Drill.Schedule, "drill", 0})
+	}
 	if cfg.Proxmox.Enabled {
 		entries = append(entries, struct {
 			calendar string

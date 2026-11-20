@@ -102,7 +102,8 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	stateDir := checkStateDir(cfg, add)
 	checkStateFormat(cfg, add)
 	checkFreeSpace(stateDir, add)
-	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, cfg.Job, add)
+	checkDrill(cfg, add)
+	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, cfg.Drill.Enabled, cfg.Job, add)
 	checkS3Credentials(cfg, add)
 	checkEmail(ctx, cfg, add)
 	checkRetention(cfg, add)
@@ -135,6 +136,22 @@ func checkProfile(cfg *config.Config, add func(string, Level, string)) {
 		return
 	}
 	add("profile", LevelOK, cfg.Backup.Profile)
+}
+
+func checkDrill(cfg *config.Config, add func(string, Level, string)) {
+	if !cfg.Drill.Enabled {
+		add("drill", LevelOK, "disabled")
+		return
+	}
+	if (cfg.Drill.Level == "service" || cfg.Drill.Level == "full") && cfg.Drill.ServiceHook == "" {
+		add("drill", LevelWarn, "enabled, but drill.service_hook is empty")
+		return
+	}
+	if (cfg.Drill.Level == "db" || cfg.Drill.Level == "full") && cfg.Drill.DBScript == "" {
+		add("drill", LevelWarn, "enabled, but drill.db_script is empty")
+		return
+	}
+	add("drill", LevelOK, "enabled, level "+cfg.Drill.Level)
 }
 
 func checkPassword(cfg *config.Config, add func(string, Level, string)) {
@@ -459,7 +476,7 @@ func checkFreeSpace(dir string, add func(string, Level, string)) {
 	add("disk", LevelOK, humanBytes(free)+" free")
 }
 
-func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, job string, add func(string, Level, string)) {
+func checkSystemd(ctx context.Context, systemctl string, verifyEnabled, drillEnabled bool, job string, add func(string, Level, string)) {
 	if systemctl == "" {
 		systemctl = "systemctl"
 	}
@@ -480,6 +497,9 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, job
 	}
 	if verifyEnabled {
 		timers = append(timers, systemd.VerifyTimerName(job))
+	}
+	if drillEnabled {
+		timers = append(timers, systemd.DrillTimerName(job))
 	}
 	for _, timer := range timers {
 		installed := systemctlRun(ctx, systemctl, "cat", timer) == nil

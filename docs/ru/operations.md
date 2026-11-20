@@ -16,19 +16,18 @@
 | `jealous-vault backup --dry-run`  | показать, что попадёт в backup                         |
 | `jealous-vault check`             | проверка целостности репозитория                       |
 | `jealous-vault test-restore`      | тестовый restore с проверкой                           |
+| `jealous-vault drill`             | restore drill: files, service, db или full             |
 | `jealous-vault freshness`         | проверка возраста backup                               |
 | `jealous-vault repo unlock`       | удалить stale-lock restic                              |
 | `jealous-vault export-restic-env` | вывести RESTIC\_\* переменные и готовую команду restic |
 
 Все команды принимают `--config`, большинство - `--json` и `--verbose`.
 
-`status` возвращает ненулевой код, если последний backup failed или старше `--max-age` (по умолчанию
-25h). Это удобно для мониторинга.
+`status` возвращает ненулевой код, если последний backup failed или старше `--max-age` (по умолчанию 25h). Это удобно для мониторинга.
 
 ## Ручной выход через restic
 
-`export-restic-env` (алиас `print-restic-command`) выводит переменные репозитория и команды restic
-для текущего job:
+`export-restic-env` (алиас `print-restic-command`) выводит переменные репозитория и команды restic для текущего job:
 
 ```sh
 sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml
@@ -38,14 +37,22 @@ sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml --j
 В выводе:
 
 - `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` и `RESTIC_CACHE_DIR`;
-- строка `source` для `repository.env_file`, чтобы credentials S3 и других бэкендов загрузились,
-  но не печатались;
+- строка `source` для `repository.env_file`, чтобы credentials S3 и других бэкендов загрузились, но не печатались;
 - команда `restic backup` с host, excludes, tags и путями из конфига;
 - `restic forget` с политикой ретенции и примеры `restic snapshots`/`restic restore`.
 
-Печатаются пути к секретам, а не их содержимое. Команда не требует установленного restic и не
-обращается к репозиторию. Используйте её, когда агент недоступен, перед обновлением или как
-аварийный путь для оператора, которому передали хост.
+Печатаются пути к секретам, а не их содержимое. Команда не требует установленного restic и не обращается к репозиторию. Используйте её, когда агент недоступен, перед обновлением или как аварийный путь для оператора, которому передали хост.
+
+## Restore drill
+
+`drill` восстанавливает снапшот в scratch-каталог и может дополнительно проверить сервис и scratch-базу. Это opt-in: `[drill] enabled = false` по умолчанию. Ручной `jealous-vault drill` работает без включения; `install` создаёт drill-таймер только при `enabled = true`.
+
+```sh
+sudo jealous-vault drill --level files
+sudo jealous-vault drill --level full --json
+```
+
+Отчёт пишется в history как `kind: drill`; `status` показывает last drill. Полный контракт, уровни, хуки и рецепты PostgreSQL/MySQL: [DRILL.md](DRILL.md).
 
 ## Жизненный цикл backup
 
@@ -58,8 +65,7 @@ sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml --j
 7. Запись state/history/audit.
 8. Алерты (при ошибке; при успехе - если `notify_on_success`).
 
-Backup идемпотентен: повторный запуск создаёт новый снапшот, дедупликация restic не даёт данным
-разрастись.
+Backup идемпотентен: повторный запуск создаёт новый снапшот, дедупликация restic не даёт данным разрастись.
 
 ## Таймеры
 
@@ -99,8 +105,7 @@ jealous-vault check --config /etc/jealous-vault/config.toml
 jealous-vault check --read-data-subset 10%
 ```
 
-`check` проверяет структуру репозитория и снапшоты. `read_data_subset` дополнительно читает часть
-pack-файлов; процент задаётся в конфиге или флагом.
+`check` проверяет структуру репозитория и снапшоты. `read_data_subset` дополнительно читает часть pack-файлов; процент задаётся в конфиге или флагом.
 
 Таймер запускает check, результат пишется в state/history. При ошибке приходит алерт.
 
@@ -120,9 +125,7 @@ jealous-vault test-restore --snapshot latest --level files --keep
 - удаляет временный каталог, если не указан `--keep`;
 - пишет state/history/audit и шлёт алерт при ошибке.
 
-Если проверенный снапшот позже удалит retention, `doctor` предупредит. Это нормально: запись
-`last_verify` хранит ID, а снапшота уже нет. Запустите `test-restore` ещё раз, чтобы обновить
-проверку.
+Если проверенный снапшот позже удалит retention, `doctor` предупредит. Это нормально: запись `last_verify` хранит ID, а снапшота уже нет. Запустите `test-restore` ещё раз, чтобы обновить проверку.
 
 Для проверки сервиса:
 
@@ -134,14 +137,11 @@ post_hook = "systemctl restart myapp && curl -fsS http://127.0.0.1:8080/health"
 
 ## Freshness
 
-`freshness` проверяет, что последний успешный backup не старше `max_age`. Если backup-таймер
-выключен, при `respect_backup_timer=true` сообщает о проблеме таймера, а не о старом снапшоте. Для
-Termux/без systemd ставьте `respect_backup_timer=false`.
+`freshness` проверяет, что последний успешный backup не старше `max_age`. Если backup-таймер выключен, при `respect_backup_timer=true` сообщает о проблеме таймера, а не о старом снапшоте. Для Termux/без systemd ставьте `respect_backup_timer=false`.
 
 ## Ретенция
 
-Политика `keep_last/daily/weekly/monthly` применяется после успешного backup. `prune=true`
-освобождает место, но переписывает репозиторий и может быть долгим.
+Политика `keep_last/daily/weekly/monthly` применяется после успешного backup. `prune=true` освобождает место, но переписывает репозиторий и может быть долгим.
 
 Примеры:
 
@@ -180,8 +180,7 @@ jealous-vault repo stats
 - свой пароль/репозиторий;
 - свои юниты с суффиксом `-<job>`.
 
-Пример: `/usr`, `/opt`, `/etc` в разных репозиториях. Плюс - независимые retention и алерты; минус -
-нет дедупликации между репозиториями.
+Пример: `/usr`, `/opt`, `/etc` в разных репозиториях. Плюс - независимые retention и алерты; минус - нет дедупликации между репозиториями.
 
 Устанавливайте и удаляйте job по конфигу:
 
@@ -192,38 +191,31 @@ jealous-vault uninstall --config /etc/jealous-vault/usr.toml
 
 ## Проверки doctor
 
-`doctor` - главный инструмент поддержки. Он проверяет конфиг и права на секреты, restic, доступ к
-репозиторию, пути, таймеры, формат state/history и профиль backup. Он предупреждает, когда:
+`doctor` - главный инструмент поддержки. Он проверяет конфиг и права на секреты, restic, доступ к репозиторию, пути, таймеры, формат state/history и профиль backup. Он предупреждает, когда:
 
 - state или history старше формата версии 1;
 - unit таймера установлен, но выключен, или включён, но не активен;
 - `backup.profile` не `host`, `vm-dumps` или `custom`.
 
-Он падает, когда конфиг, пароль, env или ключ отсутствует или читается группой/остальными. Это
-сделано намеренно: агент отказывается работать с выставленным секретом.
+Он падает, когда конфиг, пароль, env или ключ отсутствует или читается группой/остальными. Это сделано намеренно: агент отказывается работать с выставленным секретом.
 
 ## Блокировки
 
-Локальный lock (`lock_file`) не даёт двум процессам одного job работать одновременно. Если процесс
-убит, lock может остаться; `backup`/`check` умеют очищать stale-lock. Для restic используйте:
+Локальный lock (`lock_file`) не даёт двум процессам одного job работать одновременно. Если процесс убит, lock может остаться; `backup`/`check` умеют очищать stale-lock. Для restic используйте:
 
 ```sh
 jealous-vault repo unlock --config /etc/jealous-vault/config.toml
 ```
 
-Не удаляйте lock-файлы restic вручную, пока не убедились, что процесс не работает. Для
-SFTP-репозитория lock-файлы должны принадлежать пользователю репозитория; root-овые файлы ломают
-следующий backup.
+Не удаляйте lock-файлы restic вручную, пока не убедились, что процесс не работает. Для SFTP-репозитория lock-файлы должны принадлежать пользователю репозитория; root-овые файлы ломают следующий backup.
 
 ## Audit и history
 
-- `audit_file` - JSONL ключевых действий: backup, restore, check, verify, repo init/unlock,
-  uninstall.
+- `audit_file` - JSONL ключевых действий: backup, restore, check, verify, repo init/unlock, uninstall.
 - `history_file` - JSONL запусков с длительностью, статусом, snapshot ID.
 - `alerts_file` - окна дедупликации.
 
-Это локальные журналы; они не заменяют внешний мониторинг, но позволяют понять, что и когда
-запускалось.
+Это локальные журналы; они не заменяют внешний мониторинг, но позволяют понять, что и когда запускалось.
 
 ## Логи
 

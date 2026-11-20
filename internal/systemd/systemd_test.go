@@ -379,3 +379,70 @@ func TestInstallNamedJob(t *testing.T) {
 		t.Errorf("named timer was not enabled:\n%s", log)
 	}
 }
+
+func TestInstallDrillTimer(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "units")
+	systemctl, logFile := fakeSystemctl(t, dir)
+
+	cfg := config.Default()
+	cfg.Drill.Enabled = true
+	cfg.Drill.Level = "files"
+	cfg.Drill.Schedule = "Sun *-*-* 06:00:00"
+	cfg.StateFile = filepath.Join(dir, "state.json")
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		UnitDir:    units,
+		Systemctl:  systemctl,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{DrillService, DrillTimer} {
+		if _, err := os.Stat(filepath.Join(units, name)); err != nil {
+			t.Errorf("%s missing: %v", name, err)
+		}
+	}
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(log), DrillTimer) {
+		t.Errorf("drill timer was not enabled:\n%s", log)
+	}
+
+	if err := installer.Uninstall(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{DrillService, DrillTimer} {
+		if _, err := os.Stat(filepath.Join(units, name)); !os.IsNotExist(err) {
+			t.Errorf("%s was not removed", name)
+		}
+	}
+}
+
+func TestInstallDrillDisabled(t *testing.T) {
+	dir := t.TempDir()
+	units := filepath.Join(dir, "units")
+	systemctl, _ := fakeSystemctl(t, dir)
+
+	cfg := config.Default()
+	cfg.StateFile = filepath.Join(dir, "state.json")
+
+	installer := &Installer{
+		BinaryPath: filepath.Join(dir, "bin", "jealous-vault"),
+		ConfigPath: filepath.Join(dir, "config.toml"),
+		UnitDir:    units,
+		Systemctl:  systemctl,
+	}
+	if err := installer.Install(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{DrillService, DrillTimer} {
+		if _, err := os.Stat(filepath.Join(units, name)); !os.IsNotExist(err) {
+			t.Errorf("%s must not be written while drill is disabled", name)
+		}
+	}
+}

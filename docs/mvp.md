@@ -2,25 +2,18 @@
 
 English · [Русский](ru/mvp.md)
 
-Status: planning document, last updated 2026-11-20. It describes the target, not what `0.1.1`
-already does. Current features are in [README.md](../README.md); tested limits are in
-[platforms-and-limits.md](platforms-and-limits.md).
+Status: planning document, last updated 2026-11-20. It describes the target, not what `0.1.1` already does. Current features are in [README.md](../README.md); tested limits are in [platforms-and-limits.md](platforms-and-limits.md).
 
 ## Product frame
 
 JealousVault is an open project, not a gated product.
 
-- The public product is the complete backup tool, licensed under Apache-2.0. It is not a crippled
-  freemium edition and it has no feature gates.
-- Commercial work is additive: extensions, plugins, integrations, hosted services, support and
-  custom development. It does not remove capabilities from the public product.
-- Anyone may fork the public product, run it on any number of hosts, or build a compatible
-  implementation. The licence allows it; the project does not endorse it.
-- The project is maintained by one person, so the public product must stay small enough to finish,
-  test and support.
+- The public product is the complete backup tool, licensed under Apache-2.0. It is not a crippled freemium edition and it has no feature gates.
+- Commercial work is additive: extensions, plugins, integrations, hosted services, support and custom development. It does not remove capabilities from the public product.
+- Anyone may fork the public product, run it on any number of hosts, or build a compatible implementation. The licence allows it; the project does not endorse it.
+- The project is maintained by one person, so the public product must stay small enough to finish, test and support.
 
-Success for a backup tool is narrow and strict: one scenario must work, and the restore must be
-proven. A capability that cannot be restored is not a capability.
+Success for a backup tool is narrow and strict: one scenario must work, and the restore must be proven. A capability that cannot be restored is not a capability.
 
 ## The public product
 
@@ -32,16 +25,15 @@ proven. A capability that cannot be restored is not a capability.
 | Databases           | PostgreSQL, MySQL/MariaDB                                                      |
 | Basic alerts        | email, Telegram, JSON webhook, healthchecks-style ping                         |
 | Verification        | `doctor`, `history`, `test-restore`, lock handling, audit journal              |
+| Restore drill       | `drill --level files/service/db/full`, JSON report, history                    |
 | Manual escape hatch | `export-restic-env`, recovery kit, documented restic commands, config examples |
 | Documentation       | install, configuration, operations, restore, limits, troubleshooting           |
 
-The public product is never reduced to make a commercial extension look better. Restore, integrity
-checks, security fixes, basic alerts and documentation stay in it.
+The public product is never reduced to make a commercial extension look better. Restore, integrity checks, security fixes, basic alerts and documentation stay in it.
 
 ## Commercial add-ons
 
-These are separate products or services. They may live in separate repositories with separate
-licences, and their authors retain ownership of their work.
+These are separate products or services. They may live in separate repositories with separate licences, and their authors retain ownership of their work.
 
 | Area                 | Examples                                                 |
 | -------------------- | -------------------------------------------------------- |
@@ -54,8 +46,7 @@ licences, and their authors retain ownership of their work.
 | Support              | priority support, consulting, custom development         |
 | Commercial licensing | paid licences for project-owned extensions               |
 
-A commercial add-on may use the documented CLI, config and JSON output. It must not be required for
-the public product to work.
+A commercial add-on may use the documented CLI, config and JSON output. It must not be required for the public product to work.
 
 ## Ecosystem rules
 
@@ -64,10 +55,8 @@ The public policy is in [ECOSYSTEM.md](../ECOSYSTEM.md). In short:
 - a third-party plugin may use any licence, including GPL-3.0;
 - plugin authors retain ownership of their work;
 - commercial plugins are welcome, but must not claim official status without permission;
-- contributions to the public repository need a DCO sign-off and are accepted under Apache-2.0,
-  with no additional proprietary grant ([CONTRIBUTING.md](../CONTRIBUTING.md));
-- code accepted into a commercial extension is covered by a separate written agreement
-  ([CLA.md](../CLA.md)), only when both parties explicitly agree.
+- contributions to the public repository need a DCO sign-off and are accepted under Apache-2.0, with no additional proprietary grant ([CONTRIBUTING.md](../CONTRIBUTING.md));
+- code accepted into a commercial extension is covered by a separate written agreement ([CLA.md](../CLA.md)), only when both parties explicitly agree.
 
 ## MVP definition
 
@@ -84,21 +73,17 @@ S3 (primary) or local (tests)
   -> count/sum diff matches
 ```
 
-The path must be polished. Five backends working a little are worse than one backend working
-predictably.
+The path must be polished. Five backends working a little are worse than one backend working predictably.
 
 ### Acceptance criteria
 
-1. One golden path is documented and tested: S3 or local, PostgreSQL, systemd, Telegram, restore,
-   diff.
+1. One golden path is documented and tested: S3 or local, PostgreSQL, systemd, Telegram, restore, diff.
 2. A restore integration test runs in CI with a real restic binary, not a fake.
 3. Installation is one command on two distributions: `deb` plus `AUR` or `rpm`.
 4. The config schema is versioned and `config migrate` upgrades an old file.
 5. `export-restic-env` (or an equivalent one-liner) gives a manual escape hatch without the agent.
-6. A stranger can go install -> configure -> backup -> restore -> troubleshooting without asking the
-   maintainer.
-7. Limits are explicit: what is tested, what is not, and on which versions. The canonical document
-   is [platforms-and-limits.md](platforms-and-limits.md), linked from the top of the README.
+6. A stranger can go install -> configure -> backup -> restore -> troubleshooting without asking the maintainer.
+7. Limits are explicit: what is tested, what is not, and on which versions. The canonical document is [platforms-and-limits.md](platforms-and-limits.md), linked from the top of the README.
 
 ### Current state against the criteria
 
@@ -124,8 +109,7 @@ predictably.
 - a Proxmox cluster and very large `vzdump` archives;
 - managed hosting.
 
-These are not rejected forever. They are postponed until the golden path and its restore proof are
-boring. Extensions live outside this repository and do not block the public product.
+These are not rejected forever. They are postponed until the golden path and its restore proof are boring. Extensions live outside this repository and do not block the public product.
 
 ## Rule for new features
 
@@ -133,11 +117,9 @@ Ask one question: **does this strengthen the golden path or the restore proof?**
 
 - If yes, it can enter the MVP.
 - If no, it waits until the MVP criteria are met.
-- If it is an extension or a commercial feature, it does not enter this repository at all; it goes
-  to a separate repository with its own licence.
+- If it is an extension or a commercial feature, it does not enter this repository at all; it goes to a separate repository with its own licence.
 
-Every new integration is code that one person has to test, document and fix. The default answer is
-no.
+Every new integration is code that one person has to test, document and fix. The default answer is no.
 
 ## Evidence
 

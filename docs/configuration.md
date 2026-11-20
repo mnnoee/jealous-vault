@@ -4,11 +4,9 @@ English · [Русский](ru/configuration.md)
 
 This section explains how to change the config without breaking backup or restore.
 
-The config is TOML, usually `/etc/jealous-vault/config.toml`, mode `0600`. Secrets never go into the
-config: only paths to files.
+The config is TOML, usually `/etc/jealous-vault/config.toml`, mode `0600`. Secrets never go into the config: only paths to files.
 
-`jealous-vault init` writes a working, commented config. Below is a map of the sections and the
-rules that matter when editing it by hand.
+`jealous-vault init` writes a working, commented config. Below is a map of the sections and the rules that matter when editing it by hand.
 
 ## Minimal config
 
@@ -50,8 +48,7 @@ randomized_delay = "1h"
 | `audit_file`    | `/var/log/jealous-vault/audit.jsonl` | action journal                   |
 | `restic_binary` | `restic`                             | restic path/name                 |
 
-For jobs `db`, `usr` or `opt`, the agent places default paths under `/var/lib/jealous-vault/<job>/`
-so jobs do not collide. You can set them explicitly.
+For jobs `db`, `usr` or `opt`, the agent places default paths under `/var/lib/jealous-vault/<job>/` so jobs do not collide. You can set them explicitly.
 
 ## `[repository]`
 
@@ -81,8 +78,7 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_DEFAULT_REGION=us-east-1
 ```
 
-For S3 with a self-signed certificate, use a trusted CA; restic does not disable TLS verification by
-default.
+For S3 with a self-signed certificate, use a trusted CA; restic does not disable TLS verification by default.
 
 ## `[backup]`
 
@@ -109,8 +105,7 @@ Profiles:
 - `vm-dumps`: only `/var/lib/vz/dump`;
 - `custom`: no defaults; everything comes from `paths`.
 
-On Proxmox `/etc/pve` is a separate FUSE mount. With `one_file_system=true`, list it in `paths`
-explicitly or its contents will be skipped.
+On Proxmox `/etc/pve` is a separate FUSE mount. With `one_file_system=true`, list it in `paths` explicitly or its contents will be skipped.
 
 ## `[backup.dumps]`
 
@@ -143,10 +138,8 @@ binary = "mysqldump"
 - After a successful backup, the newest `keep` directories remain.
 - A dump failure cancels the backup: an incomplete set does not reach the repository.
 - PostgreSQL: `pg_dump --format=custom`; restore with `pg_restore`.
-- MySQL/MariaDB: `mysqldump --single-transaction --routines --events --triggers`; restore with
-  `mysql`/`mariadb` from SQL.
-- `--single-transaction` gives consistency for InnoDB, not for MyISAM. MyISAM tables are not locked
-  by default.
+- MySQL/MariaDB: `mysqldump --single-transaction --routines --events --triggers`; restore with `mysql`/`mariadb` from SQL.
+- `--single-transaction` gives consistency for InnoDB, not for MyISAM. MyISAM tables are not locked by default.
 - MariaDB 12.3 warns that `mysqldump` is deprecated; set `binary = "mariadb-dump"` to silence it.
 
 MySQL/MariaDB grants (minimum):
@@ -158,11 +151,9 @@ GRANT SELECT, SHOW VIEW, TRIGGER, EVENT, LOCK TABLES
   ON `app`.* TO 'backup'@'localhost';
 ```
 
-If the client connects over TCP, create the same user for `127.0.0.1`. Prefer `host = "localhost"`
-(unix socket) for a local database.
+If the client connects over TCP, create the same user for `127.0.0.1`. Prefer `host = "localhost"` (unix socket) for a local database.
 
-The agent passes the MySQL password through a temporary `--defaults-extra-file` and isolates `HOME`
-so `/root/.my.cnf` cannot override it; global option files still work.
+The agent passes the MySQL password through a temporary `--defaults-extra-file` and isolates `HOME` so `/root/.my.cnf` cannot override it; global option files still work.
 
 ## `[retention]`
 
@@ -177,9 +168,7 @@ keep_tag = []
 prune = true
 ```
 
-`forget` runs after a successful backup. `prune=true` physically removes unused blocks; it is slower
-but frees space. `keep_within` accepts values such as `"1y5m7d"`. `keep_tag` keeps snapshots with
-the listed tags.
+`forget` runs after a successful backup. `prune=true` physically removes unused blocks; it is slower but frees space. `keep_within` accepts values such as `"1y5m7d"`. `keep_tag` keeps snapshots with the listed tags.
 
 ## `[schedule]`
 
@@ -189,8 +178,7 @@ on_calendar = "*-*-* 03:30:00"
 randomized_delay = "1h"
 ```
 
-`on_calendar` uses systemd calendar syntax. `randomized_delay` spreads hosts so they do not hit the
-repository at once. Stagger multiple jobs.
+`on_calendar` uses systemd calendar syntax. `randomized_delay` spreads hosts so they do not hit the repository at once. Stagger multiple jobs.
 
 `install` creates timers for:
 
@@ -209,9 +197,7 @@ respect_backup_timer = true
 schedule = "*-*-* 00,06,12,18:15:00"
 ```
 
-Checks the age of the last successful backup. If the backup timer is disabled,
-`respect_backup_timer=true` reports a timer problem instead of a stale snapshot. For Termux or other
-non-systemd hosts, set it to `false`.
+Checks the age of the last successful backup. If the backup timer is disabled, `respect_backup_timer=true` reports a timer problem instead of a stale snapshot. For Termux or other non-systemd hosts, set it to `false`.
 
 ## `[check]`
 
@@ -221,8 +207,7 @@ read_data_subset = "10%"
 timeout = "2h"
 ```
 
-Runs `restic check`; `read_data_subset` reads part of the data (for example `5%`) to catch bit rot
-without reading the whole repository.
+Runs `restic check`; `read_data_subset` reads part of the data (for example `5%`) to catch bit rot without reading the whole repository.
 
 ## `[verify]`
 
@@ -237,13 +222,30 @@ schedule = "Sun *-*-* 05:00:00"
 post_hook = ""
 ```
 
-`test-restore` restores the latest snapshot into a separate directory and verifies files.
-`max_size`/`min_free` skip a snapshot that is too large or when space is low. `level="service"`
-requires `post_hook` and checks a service after restore.
+`test-restore` restores the latest snapshot into a separate directory and verifies files. `max_size`/`min_free` skip a snapshot that is too large or when space is low. `level="service"` requires `post_hook` and checks a service after restore.
 
-If retention later deletes the verified snapshot, `doctor` warns that the snapshot is no longer in
-the repository and suggests running `test-restore` again. `status` shows the local verify record;
-use `doctor` for diagnostics.
+If retention later deletes the verified snapshot, `doctor` warns that the snapshot is no longer in the repository and suggests running `test-restore` again. `status` shows the local verify record; use `doctor` for diagnostics.
+
+## `[drill]`
+
+```toml
+[drill]
+enabled = false
+level = "files"          # files, service, db or full
+schedule = "Sun *-*-* 06:00:00"
+# target = "/var/lib/jealous-vault/drill"
+max_size = "10GB"
+min_free = "20GB"
+timeout = "2h"
+keep = false
+service_hook = ""
+db_script = ""
+db_timeout = "30m"
+```
+
+`drill` restores a snapshot into a scratch directory and can also check a service and a scratch database. It is disabled by default; a manual `jealous-vault drill` works without enabling it. `enabled = true` makes `install` create the drill timer on systemd, cron or OpenRC.
+
+`service_hook` is required for `service` and `full`; `db_script` is required for `db` and `full`. Both are shell commands and receive `JM_DRILL_*` variables. The full contract, report format and PostgreSQL/MySQL examples are in [DRILL.md](DRILL.md).
 
 ## `[notify]`
 
@@ -275,11 +277,9 @@ timeout = "15s"
 ```
 
 - Telegram: `chat_id` or `chat_id:thread_id` for a forum topic.
-- HTML: host/time/duration in bold, errors/warnings in `<pre>`, class/code/detail in `<code>`;
-  values are escaped.
+- HTML: host/time/duration in bold, errors/warnings in `<pre>`, class/code/detail in `<code>`; values are escaped.
 - `webhooks` sends JSON POST; `ping_url` is healthchecks.io-style.
-- `notify_on_success=false` means problems only. Deduplication suppresses identical alerts inside
-  the window; `0` disables it.
+- `notify_on_success=false` means problems only. Deduplication suppresses identical alerts inside the window; `0` disables it.
 - Secrets belong in `0600` files; the email password comes from `password_file` or `password_env`.
 
 ## `[copy]`
@@ -298,9 +298,7 @@ new_only = true
 
 The copy password must differ from the primary one. A separate timer runs `restic copy`.
 
-restic uses one set of backend credentials per process. Copying S3 to S3 between different providers
-with different keys may not work directly. Options: use a local source on the storage host, or
-mirror the repository raw with rclone. SFTP/local sources work through `copy`.
+restic uses one set of backend credentials per process. Copying S3 to S3 between different providers with different keys may not work directly. Options: use a local source on the storage host, or mirror the repository raw with rclone. SFTP/local sources work through `copy`.
 
 ## `[proxmox]`
 
@@ -317,9 +315,7 @@ all = true
 storage = "local-lvm"
 ```
 
-`vzdump` writes archives to `dump_dir`, then restic backs up the directory. `restore-vm` restores a
-VM/CT from a snapshot. Needs PVE 8/9 and `qmrestore`/`pct restore`. Clusters, Windows VMs and large
-disks are not fully tested.
+`vzdump` writes archives to `dump_dir`, then restic backs up the directory. `restore-vm` restores a VM/CT from a snapshot. Needs PVE 8/9 and `qmrestore`/`pct restore`. Clusters, Windows VMs and large disks are not fully tested.
 
 ## `[restore]`
 
@@ -369,8 +365,7 @@ Install:
 sudo jealous-vault install --config /etc/jealous-vault/usr.toml
 ```
 
-Units get the `-usr` suffix. State/history/cache/lock default to `/var/lib/jealous-vault/usr/` so
-they do not collide with `default`.
+Units get the `-usr` suffix. State/history/cache/lock default to `/var/lib/jealous-vault/usr/` so they do not collide with `default`.
 
 ## Secrets
 

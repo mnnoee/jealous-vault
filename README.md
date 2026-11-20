@@ -40,17 +40,13 @@
 
 ## Why
 
-restic handles encryption, deduplication and repository format. It still leaves the operator to wire
-schedules, retention, checks, alerts, database dumps, restores and repeatable unit files.
-JealousVault puts those pieces behind one config and a set of commands that fit a runbook.
+restic handles encryption, deduplication and repository format. It still leaves the operator to wire schedules, retention, checks, alerts, database dumps, restores and repeatable unit files. JealousVault puts those pieces behind one config and a set of commands that fit a runbook.
 
 - restic repositories encrypt the data; the password lives separately.
 - S3, SFTP, local paths and REST: no vendor lock and no server of its own.
 - PostgreSQL and MariaDB/MySQL are dumped before backup instead of being copied while running.
-- `check`, `test-restore`, `freshness`, `doctor` and `history` test integrity, restores and
-  freshness, not just write a snapshot.
-- `restore` brings back files and directories, including database dumps for `pg_restore`/`mariadb`;
-  `restore-vm` covers VM/CT on Proxmox partially.
+- `check`, `test-restore`, `freshness`, `doctor` and `history` test integrity, restores and freshness, not just write a snapshot.
+- `restore` brings back files and directories, including database dumps for `pg_restore`/`mariadb`; `restore-vm` covers VM/CT on Proxmox partially.
 - Multiple jobs on one host: each has its own config, state, cache, password and units.
 
 ## Quick start
@@ -84,6 +80,7 @@ Signature verification and requirements: [docs/install.md](docs/install.md).
 | ------------- | ---------------------------------------------------------------- |
 | Backup        | `jealous-vault backup`, systemd/cron/`tick`, retention and prune |
 | Checks        | `check`, `test-restore`, `doctor`, `freshness`                   |
+| Drill         | `drill --level files/service/db/full`, JSON report, history      |
 | Restore       | `restore`, `restore-vm`, `mount`, named recipes                  |
 | Databases     | `pg_dump`, `mysqldump`/`mariadb-dump`, a separate dump-only job  |
 | Alerts        | Telegram (including forum topics), email, webhooks, healthchecks |
@@ -110,6 +107,7 @@ Signature verification and requirements: [docs/install.md](docs/install.md).
 | [Configuration](docs/configuration.md)               | every TOML section and examples                       |
 | [Operations](docs/operations.md)                     | timers, check/verify, retention, multiple jobs, audit |
 | [Restore](docs/restore.md)                           | files, databases, VM/CT, verification                 |
+| [Restore drill](docs/DRILL.md)                       | files, service, db, full; reports, scheduling         |
 | [Platforms and limits](docs/platforms-and-limits.md) | Termux, NixOS, Proxmox, large databases, copy         |
 | [Troubleshooting](docs/troubleshooting.md)           | locks, S3/SFTP, dumps, restores, state                |
 
@@ -120,29 +118,20 @@ The Russian documentation is under [docs/ru/](docs/ru/README.md).
 - restic encrypts the repository; the password is kept separately with mode `0600`.
 - Configs and secrets live in `/etc/jealous-vault` and are excluded from backups.
 - The agent does not listen for inbound connections; alerts are outbound only.
-- Vulnerabilities: [SECURITY.md](SECURITY.md), contact `vault@jealousmoon.com` (fallback:
-  `me@mnnoee.ru`).
+- Vulnerabilities: [SECURITY.md](SECURITY.md), contact `vault@jealousmoon.com` (fallback: `me@mnnoee.ru`).
 - Machine-readable contact: [`.well-known/security.txt`](.well-known/security.txt).
 
 ## Status
 
-Beta. The core works on real Linux hosts, S3/SFTP, PostgreSQL and MariaDB. Restores of all
-repositories into a separate LXC are verified. Large databases are tested at 20 GiB; hundreds of GiB
-and a Proxmox cluster are still ahead. NixOS works with manual setup; no package yet.
+Beta. The core works on real Linux hosts, S3/SFTP, PostgreSQL and MariaDB. Restores of all repositories into a separate LXC are verified. Large databases are tested at 20 GiB; hundreds of GiB and a Proxmox cluster are still ahead. NixOS works with manual setup; no package yet.
 
-Tested: 6 real hosts; 20 LXC at the same time into one S3 storage, about 1.16 GiB of unique data per
-container and about 22 GiB total. Not tested: more than 6 real hosts, more than 20 simultaneous LXC,
-databases in the hundreds of GiB, a Proxmox cluster.
+Tested: 6 real hosts; 20 LXC at the same time into one S3 storage, about 1.16 GiB of unique data per container and about 22 GiB total. Not tested: more than 6 real hosts, more than 20 simultaneous LXC, databases in the hundreds of GiB, a Proxmox cluster.
 
-What the beta does and does not cover, and what the MVP still needs:
-[docs/mvp.md](docs/mvp.md).
+What the beta does and does not cover, and what the MVP still needs: [docs/mvp.md](docs/mvp.md).
 
 ## Ecosystem
 
-JealousVault is an open project, not a gated product. Its ecosystem is open to independent
-developers, third-party extensions and alternative implementations. Commercial extensions are
-welcome, and their authors retain ownership of their respective work. See
-[ECOSYSTEM.md](ECOSYSTEM.md).
+JealousVault is an open project, not a gated product. Its ecosystem is open to independent developers, third-party extensions and alternative implementations. Commercial extensions are welcome, and their authors retain ownership of their respective work. See [ECOSYSTEM.md](ECOSYSTEM.md).
 
 ## Contributing
 

@@ -292,3 +292,29 @@ func TestLoosePasswordPermissionsFail(t *testing.T) {
 		t.Errorf("loose password permissions were not reported: %+v", report.Results)
 	}
 }
+
+func TestDrillCheck(t *testing.T) {
+	cfg := testConfig(t)
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !hasResult(report, "drill", LevelOK) {
+		t.Errorf("disabled drill must be OK: %+v", report.Results)
+	}
+	if detail := resultDetail(report, "drill"); !strings.Contains(detail, "disabled") {
+		t.Errorf("drill detail = %q", detail)
+	}
+
+	cfg.Drill.Enabled = true
+	cfg.Drill.Level = "files"
+	report = Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !hasResult(report, "drill", LevelOK) {
+		t.Errorf("files drill must be OK: %+v", report.Results)
+	}
+
+	cfg.Drill.Level = "full"
+	report = Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !hasResult(report, "drill", LevelWarn) {
+		t.Errorf("full drill without hooks must warn: %+v", report.Results)
+	}
+}

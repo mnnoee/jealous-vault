@@ -2,13 +2,9 @@
 
 English · [Русский](ru/README.md)
 
-An ADR records a decision that is expensive to reverse, together with the context and the
-consequences. It is not a tutorial and not a promise: it explains why the code looks the way it does
-so that the next change starts from the same reasoning.
+An ADR records a decision that is expensive to reverse, together with the context and the consequences. It is not a tutorial and not a promise: it explains why the code looks the way it does so that the next change starts from the same reasoning.
 
-These records are maintained in English and Russian. English is the primary version; the Russian
-translation is in [ru/](ru/README.md). They are engineering notes for the maintainer, not user
-documentation; user documentation is bilingual as well.
+These records are maintained in English and Russian. English is the primary version; the Russian translation is in [ru/](ru/README.md). They are engineering notes for the maintainer, not user documentation; user documentation is bilingual as well.
 
 | ADR                                       | Decision                                   | Status   |
 | ----------------------------------------- | ------------------------------------------ | -------- |

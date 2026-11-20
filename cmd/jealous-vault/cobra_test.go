@@ -78,7 +78,7 @@ func TestRootCommandListsEverything(t *testing.T) {
 	expected := []string{
 		"init", "repo", "install", "uninstall", "backup", "vzdump",
 		"restore-vm", "snapshots", "mount", "restore", "test-restore",
-		"check", "doctor", "freshness", "status", "history", "tick",
+		"check", "doctor", "drill", "freshness", "status", "history", "tick",
 		"recovery-kit", "export-restic-env", "version", "completion",
 	}
 	for _, name := range expected {

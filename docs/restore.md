@@ -11,8 +11,7 @@ jealous-vault snapshots --config /etc/jealous-vault/config.toml
 jealous-vault snapshots --all
 ```
 
-`--all` shows snapshots from every host in a shared repository. By default the filter uses the
-`host` from the config.
+`--all` shows snapshots from every host in a shared repository. By default the filter uses the `host` from the config.
 
 Estimate without writing:
 
@@ -29,12 +28,9 @@ sudo jealous-vault restore \
   --target /srv/restore --yes
 ```
 
-The command restores the whole snapshot filesystem into the target. Paths keep their structure:
-`/etc/hosts` becomes `/srv/restore/etc/hosts`.
+The command restores the whole snapshot filesystem into the target. Paths keep their structure: `/etc/hosts` becomes `/srv/restore/etc/hosts`.
 
-`/srv` is a system directory, so a whole-snapshot restore needs `--yes` even when the target is a
-subdirectory. The same applies to `/etc`, `/home`, `/var`, `/opt` and other top-level system
-directories. A restore with `--include` is treated as selective and does not need `--yes`.
+`/srv` is a system directory, so a whole-snapshot restore needs `--yes` even when the target is a subdirectory. The same applies to `/etc`, `/home`, `/var`, `/opt` and other top-level system directories. A restore with `--include` is treated as selective and does not need `--yes`.
 
 Selected paths:
 
@@ -66,8 +62,7 @@ Verify after restore:
 sudo jealous-vault restore --snapshot latest --target /srv/restore --yes --verify
 ```
 
-Stop services and make sure you have console access before restoring over a live system. Prefer a
-separate directory and copy data into place afterwards.
+Stop services and make sure you have console access before restoring over a live system. Prefer a separate directory and copy data into place afterwards.
 
 ## Test restore
 
@@ -108,8 +103,7 @@ Read-only snapshot access through FUSE:
 sudo jealous-vault mount --config /etc/jealous-vault/config.toml
 ```
 
-This needs `fusermount`/FUSE. It is useful for finding a file without unpacking the whole snapshot.
-The mount point and behaviour depend on restic; unmount when finished.
+This needs `fusermount`/FUSE. It is useful for finding a file without unpacking the whole snapshot. The mount point and behaviour depend on restic; unmount when finished.
 
 ## Recipes
 
@@ -171,6 +165,68 @@ mariadb -N -e 'SELECT count(*) FROM app_restore....'
 
 For a large database, compare more than count: checksums, `sum(id)` or `sum(length(...))`.
 
+## PostgreSQL scratch database
+
+A restore drill for PostgreSQL restores the dump directory from the snapshot and loads one dump into a scratch database. The `drill db` and `drill full` levels expose the restored directory as `JM_DRILL_DUMP_DIR`; the script below is a complete `db_script`.
+
+Create a dedicated role with `CREATEDB`:
+
+```sql
+CREATE ROLE jv_drill LOGIN CREATEDB PASSWORD '<password>';
+```
+
+```sh
+#!/bin/sh
+set -eu
+: "${JM_DRILL_DUMP_DIR:?run this script from jealous-vault drill}"
+
+: "${PGHOST:=127.0.0.1}"
+: "${PGUSER:=jv_drill}"
+: "${PGPASSWORD_FILE:=/etc/jealous-vault/drill.pass}"
+export PGPASSWORD="$(cat "$PGPASSWORD_FILE")"
+
+DUMP="$JM_DRILL_DUMP_DIR/postgres-app.dump"
+test -f "$DUMP"
+
+psql -v ON_ERROR_STOP=1 -d postgres \
+  -c 'DROP DATABASE IF EXISTS app_drill' >/dev/null
+psql -v ON_ERROR_STOP=1 -d postgres \
+  -c 'CREATE DATABASE app_drill' >/dev/null
+pg_restore --no-owner --no-acl -d app_drill "$DUMP"
+
+ROWS="$(psql -At -d app_drill \
+  -c 'SELECT count(*) FROM important_table')"
+test "$ROWS" -gt 0
+echo "rows=$ROWS"
+```
+
+```sh
+sudo install -m 0700 drill-postgres.sh /etc/jealous-vault/drill-postgres.sh
+sudo install -m 0600 /dev/null /etc/jealous-vault/drill.pass
+# put the password into drill.pass, then:
+```
+
+```toml
+[drill]
+enabled = true
+level = "db"
+db_script = "/etc/jealous-vault/drill-postgres.sh"
+```
+
+The dump name comes from `[backup.dumps]`: PostgreSQL dumps are `postgres-<database>.dump`. If yours differ, list `"$JM_DRILL_DUMP_DIR"` and adjust `DUMP`.
+
+For MariaDB/MySQL the same pattern works:
+
+```sh
+mariadb -e 'DROP DATABASE IF EXISTS app_drill; CREATE DATABASE app_drill'
+mariadb app_drill < "$JM_DRILL_DUMP_DIR/mysql-app.sql"
+ROWS="$(mariadb -N -e 'SELECT COUNT(*) FROM app_drill.important_table')"
+test "$ROWS" -gt 0
+echo "rows=$ROWS"
+```
+
+`drill db` restores only `[backup.dumps].dir`; `drill full` restores the whole snapshot and then runs the same script. See [DRILL.md](DRILL.md) for levels, report format and scheduling.
+
 ## Restore VM/CT (Proxmox)
 
 Partial support: `[proxmox]` and a snapshot with `vzdump` archives are required.
@@ -191,8 +247,7 @@ Flags:
 --keep            keep the temporary directory
 ```
 
-`restore-vm` extracts the archive from the snapshot and calls `qmrestore`/`pct restore`. Clusters,
-migrations and Windows VMs need separate testing.
+`restore-vm` extracts the archive from the snapshot and calls `qmrestore`/`pct restore`. Clusters, migrations and Windows VMs need separate testing.
 
 ## Restore safety
 
@@ -201,8 +256,7 @@ migrations and Windows VMs need separate testing.
 - Stop databases/services before restoring their files.
 - Check free space: the snapshot can be larger than it looks.
 - Do not restore over a running database; use the dump instead.
-- In an unprivileged LXC, device nodes and SELinux xattrs may not be created; this is a container
-  limitation, not data loss.
+- In an unprivileged LXC, device nodes and SELinux xattrs may not be created; this is a container limitation, not data loss.
 
 ## Tested in practice
 
@@ -213,17 +267,13 @@ Tested on large databases: 20 million rows.
 | PostgreSQL | ~22 GB    | 8m18s | 9m49s / 20.8 GiB | download 5m56s + verify, `pg_restore` 22m | count/sum match |
 | MariaDB    | ~21.8 GiB | 5m04s | 9m30s / 19.9 GiB | stream load 27m57s                        | count/sum match |
 
-This is not a guarantee for hundreds of gigabytes, but it shows that dump/upload/restore work at
-tens of gigabytes without losing data.
+This is not a guarantee for hundreds of gigabytes, but it shows that dump/upload/restore work at tens of gigabytes without losing data.
 
 ## Common problems
 
 - If `target` is not empty, use `--overwrite` or another directory.
 - If restore into `/` is refused, add `--yes` after checking the target.
-- `mknod: operation not permitted`: an unprivileged LXC cannot create a device node; exclude it or
-  use a privileged CT.
-- `xattr: operation not permitted`: for example `security.selinux`; use `--exclude-xattr` if
-  available, or a privileged CT.
-- `permission denied` during verify: files were restored with restricted permissions; verify as root
-  or in a directory with suitable permissions.
+- `mknod: operation not permitted`: an unprivileged LXC cannot create a device node; exclude it or use a privileged CT.
+- `xattr: operation not permitted`: for example `security.selinux`; use `--exclude-xattr` if available, or a privileged CT.
+- `permission denied` during verify: files were restored with restricted permissions; verify as root or in a directory with suitable permissions.
 - Not enough space: check `--estimate`, `min_free` and the restic cache.

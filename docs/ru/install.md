@@ -47,8 +47,7 @@ THIRD-PARTY-LICENSES.md: OK
 Good "jealous-vault-release" signature for release with ED25519 key ...
 ```
 
-`curl -k` допустим только в лаборатории с приватным CA; в публичной поставке TLS должен проверяться
-нормально.
+`curl -k` допустим только в лаборатории с приватным CA; в публичной поставке TLS должен проверяться нормально.
 
 ## Установка
 
@@ -67,9 +66,7 @@ restic version
 
 ### Пакет Debian/Ubuntu
 
-Forgejo release workflow собирает `jealous-vault_<version>_amd64.deb` и
-`jealous-vault_<version>_arm64.deb`. Пакет **не** зависит от restic: restic указан в `Suggests`,
-поэтому ставьте его отдельно. Пакет также не создаёт конфиг и не включает таймеры.
+Forgejo release workflow собирает `jealous-vault_<version>_amd64.deb` и `jealous-vault_<version>_arm64.deb`. Пакет **не** зависит от restic: restic указан в `Suggests`, поэтому ставьте его отдельно. Пакет также не создаёт конфиг и не включает таймеры.
 
 ```sh
 sudo apt-get install restic
@@ -84,8 +81,7 @@ sudo jealous-vault install --prefix /usr/bin
 sudo jealous-vault doctor
 ```
 
-`--prefix /usr/bin` важен, потому что бинарник пакета лежит в `/usr/bin/jealous-vault`. Детали
-сборки пакета и удаление - в [packaging/deb/README.ru.md](../../packaging/deb/README.ru.md).
+`--prefix /usr/bin` важен, потому что бинарник пакета лежит в `/usr/bin/jealous-vault`. Детали сборки пакета и удаление - в [packaging/deb/README.ru.md](../../packaging/deb/README.ru.md).
 
 ## Первичная настройка
 
@@ -165,8 +161,7 @@ systemctl list-units --failed | grep jealous-vault || true
 sudo jealous-vault install --config /etc/jealous-vault/config.toml --init cron
 ```
 
-Без systemd `install` создаёт запись планировщика, а `tick` решает, что пора запускать. Для
-собственного цикла:
+Без systemd `install` создаёт запись планировщика, а `tick` решает, что пора запускать. Для собственного цикла:
 
 ```sh
 jealous-vault tick --config /etc/jealous-vault/config.toml
@@ -184,8 +179,7 @@ sudo jealous-vault init --config /etc/jealous-vault/usr.toml \
 sudo jealous-vault install --config /etc/jealous-vault/usr.toml
 ```
 
-Имя job должно соответствовать `[a-z0-9][a-z0-9_-]*`. Юниты получают суффикс `-usr`, `-opt`, `-etc`
-и т.п.
+Имя job должно соответствовать `[a-z0-9][a-z0-9_-]*`. Юниты получают суффикс `-usr`, `-opt`, `-etc` и т.п.
 
 ## Обновление
 
@@ -208,12 +202,9 @@ sudo jealous-vault status --config /etc/jealous-vault/config.toml
 - старые снапшоты;
 - имена юнитов и таймеров.
 
-Новый бинарник читает конфиг старой версии. Обратное не гарантируется: старый бинарник может не
-знать новых ключей конфига. Поэтому после обновления не откатывайтесь на старую версию без бэкапа
-конфига.
+Новый бинарник читает конфиг старой версии. Обратное не гарантируется: старый бинарник может не знать новых ключей конфига. Поэтому после обновления не откатывайтесь на старую версию без бэкапа конфига.
 
-Проверено: установка и обновление на чистом Debian 13 LXC; конфиг не изменился, число юнитов
-сохранилось, старый снапшот остался, новый backup прошёл.
+Проверено: установка и обновление на чистом Debian 13 LXC; конфиг не изменился, число юнитов сохранилось, старый снапшот остался, новый backup прошёл.
 
 ## Удаление
 
@@ -228,8 +219,7 @@ sudo jealous-vault uninstall --config /etc/jealous-vault/config.toml
 - state/history;
 - бинарник.
 
-Если сервис больше не нужен, конфиг и локальное состояние удаляются вручную. Перед удалением пароля
-репозитория убедитесь, что он есть в другом месте: без него данные не восстановить.
+Если сервис больше не нужен, конфиг и локальное состояние удаляются вручную. Перед удалением пароля репозитория убедитесь, что он есть в другом месте: без него данные не восстановить.
 
 ## Платформы
 
@@ -238,6 +228,5 @@ sudo jealous-vault uninstall --config /etc/jealous-vault/config.toml
 - OpenRC: `--init openrc`.
 - runit: `--init runit` или `tick` из run-скрипта.
 - FreeBSD: rc.d/cron, пути и юниты отличаются; проверено через `tick`.
-- Termux: есть runsv/runit (`termux-services`) и `tick` + `termux-job-scheduler`, см.
-  `platforms-and-limits.md`.
+- Termux: есть runsv/runit (`termux-services`) и `tick` + `termux-job-scheduler`, см. `platforms-and-limits.md`.
 - NixOS: работает вручную; пакета/модуля пока нет.

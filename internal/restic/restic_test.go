@@ -157,12 +157,13 @@ func TestRestoreArgs(t *testing.T) {
 		Includes:  []string{"/etc"},
 		Overwrite: "never",
 		Verify:    true,
+		RetryLock: "30m",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	args := readArgs(t, argsFile)
-	for _, want := range []string{"restore latest --target /", "--host node-1", "--include /etc", "--overwrite never", "--verify"} {
+	for _, want := range []string{"restore latest --target /", "--host node-1", "--include /etc", "--overwrite never", "--verify", "--retry-lock 30m"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args %q do not contain %q", args, want)
 		}

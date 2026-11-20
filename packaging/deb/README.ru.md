@@ -2,9 +2,7 @@
 
 [English](README.md) · Русский
 
-Пакет ставит `/usr/bin/jealous-vault` и документацию. Он **не** зависит от `restic`: restic указан
-в `Suggests`, поэтому пакетный менеджер не установит его автоматически. Пакет также не создаёт
-`/etc/jealous-vault` и не включает сервисы: это остаётся явным действием оператора.
+Пакет ставит `/usr/bin/jealous-vault` и документацию. Он **не** зависит от `restic`: restic указан в `Suggests`, поэтому пакетный менеджер не установит его автоматически. Пакет также не создаёт `/etc/jealous-vault` и не включает сервисы: это остаётся явным действием оператора.
 
 ## Сборка
 
@@ -13,8 +11,7 @@
 ./build/deb.sh 0.1.1 arm64 dist/jealous-vault-linux-arm64
 ```
 
-Скрипт использует `dpkg-deb` и требует соответствующий Linux-бинарник в `dist/`. В Forgejo CI он
-запускается после обычной сборки.
+Скрипт использует `dpkg-deb` и требует соответствующий Linux-бинарник в `dist/`. В Forgejo CI он запускается после обычной сборки.
 
 ## Установка
 
@@ -24,8 +21,7 @@ sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
 sudo apt-get install -f
 ```
 
-Если `jealous-vault` уже установлен из бинарника, пакет заменит только `/usr/bin/jealous-vault`;
-копия в `/usr/local/bin` останется нетронутой.
+Если `jealous-vault` уже установлен из бинарника, пакет заменит только `/usr/bin/jealous-vault`; копия в `/usr/local/bin` останется нетронутой.
 
 Затем создайте конфиг и юниты:
 
@@ -36,9 +32,7 @@ sudo jealous-vault install --prefix /usr/bin
 sudo jealous-vault doctor
 ```
 
-`--prefix /usr/bin` важен: бинарник пакета лежит в `/usr/bin/jealous-vault`, а `install` пишет
-юниты на тот бинарник, который ему указали. Без флага `install` скопирует второй бинарник в
-`/usr/local/bin`.
+`--prefix /usr/bin` важен: бинарник пакета лежит в `/usr/bin/jealous-vault`, а `install` пишет юниты на тот бинарник, который ему указали. Без флага `install` скопирует второй бинарник в `/usr/local/bin`.
 
 ## Обновление
 
@@ -46,8 +40,7 @@ sudo jealous-vault doctor
 sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
 ```
 
-Конфиг, state, пароль репозитория и установленные юниты не затрагиваются. Проверьте версию через
-`jealous-vault version`, затем запустите `jealous-vault doctor`.
+Конфиг, state, пароль репозитория и установленные юниты не затрагиваются. Проверьте версию через `jealous-vault version`, затем запустите `jealous-vault doctor`.
 
 ## Удаление
 
@@ -58,8 +51,7 @@ sudo jealous-vault uninstall --prefix /usr/bin --config /etc/jealous-vault/confi
 sudo apt-get remove jealous-vault
 ```
 
-Пакет не удаляет `/etc/jealous-vault` и данные репозитория. Удаляйте их вручную только после того,
-как убедились, что restore работает.
+Пакет не удаляет `/etc/jealous-vault` и данные репозитория. Удаляйте их вручную только после того, как убедились, что restore работает.
 
 ## Чего пакет не делает
 

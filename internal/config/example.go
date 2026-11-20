@@ -261,6 +261,23 @@ schedule = "Sun *-*-* 05:00:00"
 # Required for level = "service", runs after the restore.
 post_hook = ""
 
+[drill]
+# Optional restore drill. Disabled by default; enable to create the timer.
+enabled = false
+# Restore drill: files, service, db or full.
+level = "files"
+schedule = "Sun *-*-* 06:00:00"
+# target = "/var/lib/jealous-vault/drill"
+max_size = "10GB"
+min_free = "20GB"
+timeout = "2h"
+keep = false
+# Required for level = "service" and "full". Shell command.
+service_hook = ""
+# Required for level = "db" and "full". Shell command, gets JM_DRILL_* env.
+db_script = ""
+db_timeout = "30m"
+
 [restore]
 # Hooks run around a restore. Use them to stop and start services.
 pre_hooks = []

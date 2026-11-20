@@ -4,60 +4,47 @@ English · [Русский](CHANGELOG.ru.md)
 
 All notable changes to JealousVault are documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
-adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is
-in [STABILITY.md](STABILITY.md).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is in [STABILITY.md](STABILITY.md).
 
 ## [Unreleased]
 
+### Added
+
+- `jealous-vault drill` with levels `files`, `service`, `db` and `full`: restores into a scratch directory, optionally checks a service and a scratch database, writes a structured JSON/human report, records `kind: drill` in history and sends alerts.
+- `[drill]` configuration with `enabled = false` by default. Scheduled drills are opt-in; when enabled, `install` creates a systemd timer, cron entry or OpenRC weekly job.
+- `docs/DRILL.md` and `docs/ru/DRILL.md`, plus PostgreSQL/MySQL scratch database recipes in `docs/restore.md`. `status` now shows `last drill`.
+- State format additions: `last_drill`, `level` and `details` on drill runs.
+
 ### Fixed
 
-- `restore` now says "system directory" instead of "over /" when a whole-snapshot restore needs
-  confirmation. Docs add `--yes` for targets under `/srv`, `/home`, `/var`, `/opt` and other system
-  directories.
+- `restore` now says "system directory" instead of "over /" when a whole-snapshot restore needs confirmation. Docs add `--yes` for targets under `/srv`, `/home`, `/var`, `/opt` and other system directories.
 
 ## [0.1.1] - 2026-11-20
 
 ### Added
 
-- `jealous-vault export-restic-env` (alias `print-restic-command`): prints the configured `RESTIC_*`
-  variables (repository, password file, cache) and a ready backup, retention and restore command for
-  the current job. It uses the same environment and argument builders as the agent, prints the
-  repository URL as-is and paths to secret files rather than their contents, and does not need
-  restic installed.
-- Debian/Ubuntu `.deb` packages for `amd64` and `arm64`, built by `build/deb.sh`. The package
-  suggests restic instead of depending on it, and does not create configs or enable timers.
+- `jealous-vault export-restic-env` (alias `print-restic-command`): prints the configured `RESTIC_*` variables (repository, password file, cache) and a ready backup, retention and restore command for the current job. It uses the same environment and argument builders as the agent, prints the repository URL as-is and paths to secret files rather than their contents, and does not need restic installed.
+- Debian/Ubuntu `.deb` packages for `amd64` and `arm64`, built by `build/deb.sh`. The package suggests restic instead of depending on it, and does not create configs or enable timers.
 - Fuzz tests for the TOML config parser and the state/history readers.
-- `doctor` checks state/history format versions and systemd timers that are installed but disabled.
-  An unknown `backup.profile` is reported as a config error before `doctor` starts.
+- `doctor` checks state/history format versions and systemd timers that are installed but disabled. An unknown `backup.profile` is reported as a config error before `doctor` starts.
 - `VERSION` file used by `build/deb.sh` and release tooling.
-- `STABILITY.md` and `STABILITY.ru.md`: the public API, deprecation policy and breaking-change
-  rules.
+- `STABILITY.md` and `STABILITY.ru.md`: the public API, deprecation policy and breaking-change rules.
 - `MAINTAINERS.md` and `MAINTAINERS.ru.md`: maintainer model, response targets and bus factor.
 - `CONTRIBUTING.md` and `CONTRIBUTING.ru.md`: DCO, checks and review expectations.
-- `ECOSYSTEM.md` and `ECOSYSTEM.ru.md`: the public product, independent plugins, commercial
-  extensions and trademark rules.
-- `CLA.md` and `CLA.ru.md`: a separate contributor licence agreement for code accepted into a
-  commercial extension. It does not apply to ordinary pull requests.
-- `docs/mvp.md` and `docs/ru/mvp.md`: MVP definition, the public product boundary and the additive
-  commercial offer.
-- `docs/adr/`: five architecture decision records in English and Russian covering TOML, separate
-  state, the no-daemon design, `tick` mode and the public-product-plus-extensions model.
+- `ECOSYSTEM.md` and `ECOSYSTEM.ru.md`: the public product, independent plugins, commercial extensions and trademark rules.
+- `CLA.md` and `CLA.ru.md`: a separate contributor licence agreement for code accepted into a commercial extension. It does not apply to ordinary pull requests.
+- `docs/mvp.md` and `docs/ru/mvp.md`: MVP definition, the public product boundary and the additive commercial offer.
+- `docs/adr/`: five architecture decision records in English and Russian covering TOML, separate state, the no-daemon design, `tick` mode and the public-product-plus-extensions model.
 - `CHANGELOG.ru.md`: Russian changelog.
 - A "Start here" navigation block at the top of both READMEs.
 
 ### Changed
 
-- State and history files now carry format version `1`. Files written by 0.1.0 have no version
-  field; they stay readable and are rewritten on the next save.
-- `backup.one_file_system` now defaults to `true` when the key is omitted, matching the
-  documentation and the config generated by `init`.
-- The Forgejo release workflow triggers on version tags without a `v` prefix and attaches the two
-  `.deb` packages to the release; `SHA256SUMS` covers them.
-- Contributions to the public repository are accepted under Apache-2.0 with a DCO sign-off only.
-  They do not grant additional proprietary or relicensing rights.
-- The product model is documented as a complete Apache-2.0 public product with separate, additive
-  commercial extensions and support. There is no open-core feature gating.
+- State and history files now carry format version `1`. Files written by 0.1.0 have no version field; they stay readable and are rewritten on the next save.
+- `backup.one_file_system` now defaults to `true` when the key is omitted, matching the documentation and the config generated by `init`.
+- The Forgejo release workflow triggers on version tags without a `v` prefix and attaches the two `.deb` packages to the release; `SHA256SUMS` covers them.
+- Contributions to the public repository are accepted under Apache-2.0 with a DCO sign-off only. They do not grant additional proprietary or relicensing rights.
+- The product model is documented as a complete Apache-2.0 public product with separate, additive commercial extensions and support. There is no open-core feature gating.
 - Third-party plugins may use their own licences, including GPL-3.0; their authors retain ownership.
 
 ## [0.1.0] - 2026-11-19
@@ -66,47 +53,32 @@ First public beta.
 
 ### Added
 
-- `init`, `install` and `uninstall` with systemd services and timers, OpenRC, cron, runit and a
-  portable `tick` mode.
-- restic repositories over S3, SFTP, local paths and REST, with encryption keys kept outside the
-  repository.
-- Backups with host, VM-dumps and custom profiles, excludes, tags, hooks, retries, transfer limits,
-  compression and a total timeout.
-- Consistent PostgreSQL and MariaDB/MySQL dumps before the backup, with retention for dump
-  directories.
-- Retention with `keep_last`, `keep_daily`, `keep_weekly`, `keep_monthly`, `keep_within`,
-  `keep_tag` and optional `prune`.
-- Integrity and recovery checks: `check`, `test-restore`/`verify`, `freshness`, `doctor`, `status`
-  and `history`.
-- Restore of files and directories, including database dump files, with named recipes, overwrite
-  modes and verification; database import remains the documented `pg_restore`/`mariadb` step.
+- `init`, `install` and `uninstall` with systemd services and timers, OpenRC, cron, runit and a portable `tick` mode.
+- restic repositories over S3, SFTP, local paths and REST, with encryption keys kept outside the repository.
+- Backups with host, VM-dumps and custom profiles, excludes, tags, hooks, retries, transfer limits, compression and a total timeout.
+- Consistent PostgreSQL and MariaDB/MySQL dumps before the backup, with retention for dump directories.
+- Retention with `keep_last`, `keep_daily`, `keep_weekly`, `keep_monthly`, `keep_within`, `keep_tag` and optional `prune`.
+- Integrity and recovery checks: `check`, `test-restore`/`verify`, `freshness`, `doctor`, `status` and `history`.
+- Restore of files and directories, including database dump files, with named recipes, overwrite modes and verification; database import remains the documented `pg_restore`/`mariadb` step.
 - `mount` for read-only snapshot access through FUSE.
-- Partial Proxmox support: `vzdump` for VMs and containers and `restore-vm` through `qmrestore` or
-  `pct restore`.
-- Alerts over Telegram (including forum topics), email through a local MTA or SMTP, JSON webhooks
-  and healthchecks.io-style pings, with per-class deduplication.
-- Multiple independent jobs per host, each with its own config, repository, password, state, cache,
-  lock and units.
+- Partial Proxmox support: `vzdump` for VMs and containers and `restore-vm` through `qmrestore` or `pct restore`.
+- Alerts over Telegram (including forum topics), email through a local MTA or SMTP, JSON webhooks and healthchecks.io-style pings, with per-class deduplication.
+- Multiple independent jobs per host, each with its own config, repository, password, state, cache, lock and units.
 - Audit journal of critical actions with the invoking user, SSH origin and sudo context.
-- Repository operations: `init`, `unlock`, `stats`, `diff`, `delete`, `copy` to a second repository,
-  password rotation and key management.
+- Repository operations: `init`, `unlock`, `stats`, `diff`, `delete`, `copy` to a second repository, password rotation and key management.
 - Recovery kit for offline access to the repository password and restic environment.
-- Signed release assets: `linux/amd64` and `linux/arm64` binaries, `THIRD-PARTY-LICENSES.md`,
-  `SHA256SUMS` and `SHA256SUMS.sig`.
-- English and Russian documentation for install, configuration, operations, restore, platforms and
-  troubleshooting.
+- Signed release assets: `linux/amd64` and `linux/arm64` binaries, `THIRD-PARTY-LICENSES.md`, `SHA256SUMS` and `SHA256SUMS.sig`.
+- English and Russian documentation for install, configuration, operations, restore, platforms and troubleshooting.
 
 ### Security
 
-- Config, password, environment and SSH key files are `0600`; `/etc/jealous-vault` is excluded from
-  backups by default.
+- Config, password, environment and SSH key files are `0600`; `/etc/jealous-vault` is excluded from backups by default.
 - Unknown config keys are rejected instead of silently ignored.
 - Lock files refuse symlinks and use `flock` for exclusion.
 - Restores into system directories require explicit confirmation.
 - Proxmox dump archives are owner-only.
 - Alert endpoints and credentials are redacted from errors and logs.
-- The MySQL password is passed through a temporary `--defaults-extra-file`, and `HOME` is isolated
-  so `~/.my.cnf` cannot override it.
+- The MySQL password is passed through a temporary `--defaults-extra-file`, and `HOME` is isolated so `~/.my.cnf` cannot override it.
 - Release checksums are signed with an SSH Ed25519 key and verified with `build/allowed_signers`.
 
 ### Known limitations
@@ -115,5 +87,4 @@ First public beta.
 - Proxmox clusters, Windows VMs and very large `vzdump` archives are not fully tested.
 - NixOS works with manual setup; no package or module is provided.
 - Termux is manual and depends on runsv/runit or JobScheduler.
-- `copy` between two S3 providers with different credentials may need a local source or an rclone
-  mirror.
+- `copy` between two S3 providers with different credentials may need a local source or an rclone mirror.

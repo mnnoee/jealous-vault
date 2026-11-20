@@ -38,9 +38,9 @@ type Options struct {
 	Output   io.Writer
 }
 
-// lockRetry makes exclusive operations wait for another host instead of
+// LockRetry makes exclusive operations wait for another host instead of
 // failing immediately. The surrounding context still bounds the total wait.
-const lockRetry = "30m"
+const LockRetry = "30m"
 
 // Client runs restic with a fixed repository and environment.
 type Client struct {
@@ -306,6 +306,9 @@ type RestoreOptions struct {
 	Includes  []string
 	Overwrite string
 	Verify    bool
+	// RetryLock makes restic wait for a repository lock held by another host.
+	// Empty keeps the default restic behaviour (fail immediately).
+	RetryLock string
 }
 
 // Restore writes a snapshot into Target. Snapshot may be "latest".
@@ -330,6 +333,9 @@ func (c *Client) Restore(ctx context.Context, o RestoreOptions) error {
 	if o.Verify {
 		args = append(args, "--verify")
 	}
+	if o.RetryLock != "" {
+		args = append(args, "--retry-lock", o.RetryLock)
+	}
 
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
@@ -353,7 +359,7 @@ func (c *Client) Check(ctx context.Context, readDataSubset string) error {
 	if readDataSubset != "" {
 		args = append(args, "--read-data-subset", readDataSubset)
 	}
-	args = append(args, "--retry-lock", lockRetry)
+	args = append(args, "--retry-lock", LockRetry)
 
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
@@ -376,7 +382,7 @@ func (c *Client) Forget(ctx context.Context, policy []string, prune bool) error 
 	if prune {
 		args = append(args, "--prune")
 	}
-	args = append(args, "--retry-lock", lockRetry)
+	args = append(args, "--retry-lock", LockRetry)
 
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
@@ -419,7 +425,7 @@ func (c *Client) ForgetSnapshot(ctx context.Context, snapshot string, prune bool
 	if prune {
 		args = append(args, "--prune")
 	}
-	args = append(args, "--retry-lock", lockRetry)
+	args = append(args, "--retry-lock", LockRetry)
 	cmd := c.command(ctx, args...)
 	cmd.Stdout = c.out
 	var stderr tailBuffer
