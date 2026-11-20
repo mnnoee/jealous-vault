@@ -49,8 +49,8 @@ JealousVault puts those pieces behind one config and a set of commands that fit 
 - PostgreSQL and MariaDB/MySQL are dumped before backup instead of being copied while running.
 - `check`, `test-restore`, `freshness`, `doctor` and `history` test integrity, restores and
   freshness, not just write a snapshot.
-- `restore` brings back files, directories and databases; `restore-vm` covers VM/CT on Proxmox
-  partially.
+- `restore` brings back files and directories, including database dumps for `pg_restore`/`mariadb`;
+  `restore-vm` covers VM/CT on Proxmox partially.
 - Multiple jobs on one host: each has its own config, state, cache, password and units.
 
 ## Quick start

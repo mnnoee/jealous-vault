@@ -12,16 +12,17 @@ in [STABILITY.md](STABILITY.md).
 
 ### Added
 
-- `jealous-vault export-restic-env` (alias `print-restic-command`): prints the exact `RESTIC_*`
-  variables and a ready backup, retention and restore command for the current job. It uses the same
-  environment and argument builders as the agent, prints paths to secrets rather than their values,
-  and does not need restic installed.
+- `jealous-vault export-restic-env` (alias `print-restic-command`): prints the configured `RESTIC_*`
+  variables (repository, password file, cache) and a ready backup, retention and restore command for
+  the current job. It uses the same environment and argument builders as the agent, prints the
+  repository URL as-is and paths to secret files rather than their contents, and does not need
+  restic installed.
 - Debian/Ubuntu `.deb` packages for `amd64` and `arm64`, built by `build/deb.sh`. The package
   suggests restic instead of depending on it, and does not create configs or enable timers.
 - Fuzz tests for the TOML config parser and the state/history readers.
-- `doctor` checks for state/history format versions, systemd timers that are installed but disabled,
-  and an unknown `backup.profile`.
-- `VERSION` file for local builds and packaging.
+- `doctor` checks state/history format versions and systemd timers that are installed but disabled.
+  An unknown `backup.profile` is reported as a config error before `doctor` starts.
+- `VERSION` file used by `build/deb.sh` and release tooling.
 - `STABILITY.md` and `STABILITY.ru.md`: the public API, deprecation policy and breaking-change
   rules.
 - `MAINTAINERS.md` and `MAINTAINERS.ru.md`: maintainer model, response targets and bus factor.
@@ -69,8 +70,8 @@ First public beta.
   `keep_tag` and optional `prune`.
 - Integrity and recovery checks: `check`, `test-restore`/`verify`, `freshness`, `doctor`, `status`
   and `history`.
-- Restore of files, directories, databases, named recipes and VM/CT archives, with confirmation for
-  system targets, overwrite modes and verification.
+- Restore of files and directories, including database dump files, with named recipes, overwrite
+  modes and verification; database import remains the documented `pg_restore`/`mariadb` step.
 - `mount` for read-only snapshot access through FUSE.
 - Partial Proxmox support: `vzdump` for VMs and containers and `restore-vm` through `qmrestore` or
   `pct restore`.

@@ -49,7 +49,8 @@
 - PostgreSQL и MariaDB/MySQL дампятся перед backup, а не копируются во время работы.
 - `check`, `test-restore`, `freshness`, `doctor`, `history` проверяют целостность, восстановление и
   свежесть, а не только пишут снапшот.
-- `restore` возвращает файлы, каталоги и БД; `restore-vm` частично покрывает VM/CT на Proxmox.
+- `restore` возвращает файлы и каталоги, включая дампы БД для `pg_restore`/`mariadb`;
+  `restore-vm` частично покрывает VM/CT на Proxmox.
 - Несколько job на хосте: у каждого свой конфиг, state, cache, пароль и юниты.
 
 ## Быстрый старт
