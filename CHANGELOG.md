@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is
 in [STABILITY.md](STABILITY.md).
 
-## [0.1.1] - unreleased
+## [0.1.1] - 2026-11-20
 
 ### Added
 

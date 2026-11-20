@@ -114,10 +114,14 @@ jobs:
           fi
           prerelease=false
           case "$TAG" in
-            *-*) prerelease=true ;;
+            0.*|*-*) prerelease=true ;;
           esac
-          payload=$(TAG="$TAG" PRERELEASE="$prerelease" python3 -c \
-            'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "name": os.environ["TAG"], "prerelease": os.environ["PRERELEASE"] == "true"}))')
+          name="$TAG"
+          if [ "$prerelease" = true ]; then
+            name="$TAG beta"
+          fi
+          payload=$(TAG="$TAG" NAME="$name" PRERELEASE="$prerelease" python3 -c \
+            'import json,os; print(json.dumps({"tag_name": os.environ["TAG"], "name": os.environ["NAME"], "prerelease": os.environ["PRERELEASE"] == "true"}))')
           api="https://git.larch.home.arpa/api/v1/repos/mnnoee/jealous-vault"
           release_id=$(curl -fsS --retry 3 \
             -H "Authorization: token $TOKEN" \

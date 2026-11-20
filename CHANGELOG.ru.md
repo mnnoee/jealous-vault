@@ -8,7 +8,7 @@
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Контракт совместимости - в
 [STABILITY.ru.md](STABILITY.ru.md).
 
-## [0.1.1] - unreleased
+## [0.1.1] - 2026-11-20
 
 ### Добавлено
 

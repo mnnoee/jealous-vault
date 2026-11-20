@@ -2,7 +2,7 @@
 
 English · [Русский](ru/mvp.md)
 
-Status: planning document, last updated 2026-11-20. It describes the target, not what `0.1.0`
+Status: planning document, last updated 2026-11-20. It describes the target, not what `0.1.1`
 already does. Current features are in [README.md](../README.md); tested limits are in
 [platforms-and-limits.md](platforms-and-limits.md).
 
@@ -102,7 +102,7 @@ predictably.
 
 ### Current state against the criteria
 
-| Criterion               | In 0.1.0                                                             | Gap                                              |
+| Criterion               | In 0.1.1                                                             | Gap                                              |
 | ----------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
 | Golden path             | Works manually on real hosts, S3 and PostgreSQL                      | Not packaged; not a single verified install path |
 | Restore test in CI      | Unit tests use a fake restic; restores were verified manually in LXC | No real-restic restore job in CI                 |
