@@ -303,7 +303,7 @@ func Default() *Config {
 			All:      true,
 			Storage:  "local-lvm",
 		},
-		Backup: Backup{Profile: "host", Timeout: "6h", Attempts: 3, RetryDelay: "1m", Compression: "auto", Dumps: DumpOptions{
+		Backup: Backup{Profile: "host", OneFileSystem: true, Timeout: "6h", Attempts: 3, RetryDelay: "1m", Compression: "auto", Dumps: DumpOptions{
 			Dir:  "/var/lib/jealous-vault/dumps",
 			Keep: 3,
 		}},
@@ -602,6 +602,17 @@ func (c *Config) finish() error {
 	return c.Validate()
 }
 
+// ValidProfile reports whether profile is one of the documented backup
+// profiles. It is shared by validation and doctor so both use the same list.
+func ValidProfile(profile string) bool {
+	switch profile {
+	case "host", "vm-dumps", "custom":
+		return true
+	default:
+		return false
+	}
+}
+
 // Validate checks the parts that would otherwise fail at backup time.
 func (c *Config) Validate() error {
 	if c.Repository.URL == "" {
@@ -654,9 +665,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("retention.keep_tag[%d] is empty", i)
 		}
 	}
-	switch c.Backup.Profile {
-	case "host", "vm-dumps", "custom":
-	default:
+	if !ValidProfile(c.Backup.Profile) {
 		return fmt.Errorf("backup.profile %q must be host, vm-dumps or custom", c.Backup.Profile)
 	}
 	if len(c.Backup.Paths) == 0 {

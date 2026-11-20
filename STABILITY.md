@@ -35,7 +35,7 @@ Public:
 
 - command names and subcommands: `init`, `repo`, `install`, `uninstall`, `backup`, `vzdump`,
   `restore-vm`, `snapshots`, `mount`, `restore`, `test-restore`, `check`, `doctor`, `freshness`,
-  `status`, `history`, `tick`, `recovery-kit`, `version`;
+  `status`, `history`, `tick`, `recovery-kit`, `export-restic-env`, `version`;
 - flags documented in `--help` and in `docs/`;
 - exit codes: `0` for success, `1` for any failure (bad config, runtime error, failed check, stale
   backup);
@@ -83,10 +83,12 @@ These files are written by the agent with mode `0600`:
 | `backup.lock`   | JSON   | lock holder, diagnostics only        |
 | `alerts.json`   | JSON   | alert deduplication windows          |
 
-`state.json` has four optional keys: `last_run`, `last_success`, `last_check`, `last_verify`. Each
-holds a run object with these fields: `kind`, `started_at`, `finished_at`, `status`, `snapshot_id`,
-`files_new`, `files_changed`, `bytes_added`, `duration_seconds`, `warnings`, `error`. `kind` is
-`backup`, `check` or `verify`; `status` is `success`, `failed` or `skipped`.
+`state.json` has four optional keys: `last_run`, `last_success`, `last_check`, `last_verify`. The
+document has a top-level `version` field, currently `1`. Each run object has `version`, `kind`,
+`started_at`, `finished_at`, `status`, `snapshot_id`, `files_new`, `files_changed`, `bytes_added`,
+`duration_seconds`, `warnings` and `error`. `kind` is `backup`, `check` or `verify`; `status` is
+`success`, `failed` or `skipped`. Files written by 0.1.0 have no `version` field; they remain
+readable and are rewritten as version 1 on the next save.
 
 `history.jsonl` contains one run object per line, oldest first. A torn last line is ignored; a
 malformed line in the middle is an error.

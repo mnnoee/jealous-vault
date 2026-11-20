@@ -37,7 +37,7 @@ JealousVault следует semantic versioning: `MAJOR.MINOR.PATCH`.
 
 - имена команд и подкоманд: `init`, `repo`, `install`, `uninstall`, `backup`, `vzdump`,
   `restore-vm`, `snapshots`, `mount`, `restore`, `test-restore`, `check`, `doctor`, `freshness`,
-  `status`, `history`, `tick`, `recovery-kit`, `version`;
+  `status`, `history`, `tick`, `recovery-kit`, `export-restic-env`, `version`;
 - флаги, описанные в `--help` и в `docs/`;
 - коды выхода: `0` - успех, `1` - любая ошибка (плохой конфиг, ошибка выполнения, проваленная
   проверка, устаревший backup);
@@ -87,9 +87,11 @@ backup. Команды `config migrate` пока нет; до её появле�
 | `alerts.json`   | JSON   | окна дедупликации алертов                    |
 
 В `state.json` четыре необязательных ключа: `last_run`, `last_success`, `last_check`, `last_verify`.
-Каждый содержит объект запуска с полями: `kind`, `started_at`, `finished_at`, `status`,
-`snapshot_id`, `files_new`, `files_changed`, `bytes_added`, `duration_seconds`, `warnings`, `error`.
-`kind` - `backup`, `check` или `verify`; `status` - `success`, `failed` или `skipped`.
+В документе есть поле верхнего уровня `version`, сейчас `1`. Каждый объект запуска содержит
+`version`, `kind`, `started_at`, `finished_at`, `status`, `snapshot_id`, `files_new`,
+`files_changed`, `bytes_added`, `duration_seconds`, `warnings` и `error`. `kind` - `backup`, `check`
+или `verify`; `status` - `success`, `failed` или `skipped`. Файлы, созданные 0.1.0, не содержат поля
+`version`; они остаются читаемыми и перезаписываются как версия 1 при следующем сохранении.
 
 `history.jsonl` содержит один объект запуска на строку, от старых к новым. Оборванная последняя
 строка игнорируется; испорченная строка в середине - ошибка.

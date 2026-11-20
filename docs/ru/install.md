@@ -8,13 +8,15 @@
 
 В релизе лежат:
 
-| Файл                        | Назначение                         |
-| --------------------------- | ---------------------------------- |
-| `jealous-vault-linux-amd64` | бинарник для x86-64                |
-| `jealous-vault-linux-arm64` | бинарник для arm64                 |
-| `THIRD-PARTY-LICENSES.md`   | лицензии зависимостей              |
-| `SHA256SUMS`                | контрольные суммы                  |
-| `SHA256SUMS.sig`            | отсоединённая подпись `SHA256SUMS` |
+| Файл                                | Назначение                         |
+| ----------------------------------- | ---------------------------------- |
+| `jealous-vault-linux-amd64`         | бинарник для x86-64                |
+| `jealous-vault-linux-arm64`         | бинарник для arm64                 |
+| `jealous-vault_<version>_amd64.deb` | пакет Debian/Ubuntu, x86-64        |
+| `jealous-vault_<version>_arm64.deb` | пакет Debian/Ubuntu, arm64         |
+| `THIRD-PARTY-LICENSES.md`           | лицензии зависимостей              |
+| `SHA256SUMS`                        | контрольные суммы                  |
+| `SHA256SUMS.sig`                    | отсоединённая подпись `SHA256SUMS` |
 
 Подпись проверяется ключом из `build/allowed_signers` в репозитории. Пример для тега `0.1.0`:
 
@@ -62,6 +64,28 @@ restic version
 ```
 
 `doctor` предупредит, если версия restic вне проверенных серий.
+
+### Пакет Debian/Ubuntu
+
+Forgejo release workflow собирает `jealous-vault_<version>_amd64.deb` и
+`jealous-vault_<version>_arm64.deb`. Пакет **не** зависит от restic: restic указан в `Suggests`,
+поэтому ставьте его отдельно. Пакет также не создаёт конфиг и не включает таймеры.
+
+```sh
+sudo apt-get install restic
+sudo dpkg -i jealous-vault_0.1.1_amd64.deb
+sudo apt-get install -f
+
+sudo jealous-vault init \
+  --repo s3:https://s3.example.com/backup/host1 \
+  --paths /etc,/home,/var/www \
+  --profile host
+sudo jealous-vault install --prefix /usr/bin
+sudo jealous-vault doctor
+```
+
+`--prefix /usr/bin` важен, потому что бинарник пакета лежит в `/usr/bin/jealous-vault`. Детали
+сборки пакета и удаление - в [packaging/deb/README.ru.md](../../packaging/deb/README.ru.md).
 
 ## Первичная настройка
 

@@ -109,6 +109,7 @@ Commands:
   status        show the last run and whether the backup is fresh
   history       show recent backup, check and verify runs
   recovery-kit  write an offline recovery kit for this repository
+  export-restic-env  print RESTIC_* variables and a ready restic command
   version       print version information
 
 Run "jealous-vault <command> --help" for command flags.

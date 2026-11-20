@@ -70,6 +70,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	}
 
 	checkConfigFile(cfg, add)
+	checkProfile(cfg, add)
 	checkPassword(cfg, add)
 	checkSecretFiles(cfg, add)
 	checkAudit(cfg, add)
@@ -99,6 +100,7 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkBackupSecrets(cfg, add)
 	checkDumps(cfg, add)
 	stateDir := checkStateDir(cfg, add)
+	checkStateFormat(cfg, add)
 	checkFreeSpace(stateDir, add)
 	checkSystemd(ctx, opts.Systemctl, cfg.Verify.Enabled, cfg.Job, add)
 	checkS3Credentials(cfg, add)
@@ -121,6 +123,18 @@ func checkConfigFile(cfg *config.Config, add func(string, Level, string)) {
 		return
 	}
 	add("config", LevelOK, cfg.Path)
+}
+
+func checkProfile(cfg *config.Config, add func(string, Level, string)) {
+	if cfg.Backup.Profile == "" {
+		add("profile", LevelWarn, "backup.profile is empty; host is used by default")
+		return
+	}
+	if !config.ValidProfile(cfg.Backup.Profile) {
+		add("profile", LevelWarn, fmt.Sprintf("backup.profile %q is not one of host, vm-dumps, custom", cfg.Backup.Profile))
+		return
+	}
+	add("profile", LevelOK, cfg.Backup.Profile)
 }
 
 func checkPassword(cfg *config.Config, add func(string, Level, string)) {
@@ -377,6 +391,59 @@ func checkStateDir(cfg *config.Config, add func(string, Level, string)) string {
 	return dir
 }
 
+func checkStateFormat(cfg *config.Config, add func(string, Level, string)) {
+	store := state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile}
+	st, err := store.Load()
+	if err != nil {
+		add("state format", LevelWarn, "cannot read state: "+err.Error())
+		return
+	}
+	runs, err := store.History(0)
+	if err != nil {
+		add("state format", LevelWarn, "cannot read history: "+err.Error())
+		return
+	}
+
+	var problems []string
+	if st.Version == 0 && (stateHasRuns(st) || len(runs) > 0) {
+		problems = append(problems, fmt.Sprintf("state has no format version (0.1.0 or older); it becomes %d on the next save", state.CurrentVersion))
+	}
+	if st.Version > state.CurrentVersion {
+		problems = append(problems, fmt.Sprintf("state format %d is newer than supported %d", st.Version, state.CurrentVersion))
+	}
+
+	oldRuns := 0
+	newRuns := 0
+	for _, run := range runs {
+		if run.Version == 0 {
+			oldRuns++
+		}
+		if run.Version > state.CurrentVersion {
+			newRuns++
+		}
+	}
+	if oldRuns > 0 {
+		problems = append(problems, fmt.Sprintf("%d history record(s) have no format version (0.1.0 or older); they stay readable and new records use %d", oldRuns, state.CurrentVersion))
+	}
+	if newRuns > 0 {
+		problems = append(problems, fmt.Sprintf("%d history record(s) use a newer format than supported %d", newRuns, state.CurrentVersion))
+	}
+
+	if len(problems) > 0 {
+		add("state format", LevelWarn, strings.Join(problems, "; "))
+		return
+	}
+	if st.Version == 0 && len(runs) == 0 && !stateHasRuns(st) {
+		add("state format", LevelOK, "not created yet")
+		return
+	}
+	add("state format", LevelOK, fmt.Sprintf("state and history use format %d", state.CurrentVersion))
+}
+
+func stateHasRuns(st *state.State) bool {
+	return st.LastRun != nil || st.LastSuccess != nil || st.LastCheck != nil || st.LastVerify != nil
+}
+
 func checkFreeSpace(dir string, add func(string, Level, string)) {
 	var stat syscall.Statfs_t
 	if err := syscall.Statfs(dir, &stat); err != nil {
@@ -415,12 +482,16 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled bool, job
 		timers = append(timers, systemd.VerifyTimerName(job))
 	}
 	for _, timer := range timers {
-		if err := systemctlRun(ctx, systemctl, "is-enabled", timer); err != nil {
-			problems = append(problems, timer+" is not enabled")
-			continue
-		}
-		if err := systemctlRun(ctx, systemctl, "is-active", timer); err != nil {
-			problems = append(problems, timer+" is not active")
+		installed := systemctlRun(ctx, systemctl, "cat", timer) == nil
+		enabled := systemctlRun(ctx, systemctl, "is-enabled", timer) == nil
+		active := systemctlRun(ctx, systemctl, "is-active", timer) == nil
+		switch {
+		case !installed:
+			problems = append(problems, timer+" is not installed")
+		case !enabled:
+			problems = append(problems, timer+" is installed but disabled")
+		case !active:
+			problems = append(problems, timer+" is installed and enabled but not active")
 		}
 	}
 	if len(problems) > 0 {

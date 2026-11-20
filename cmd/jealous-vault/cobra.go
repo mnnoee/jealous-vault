@@ -51,6 +51,7 @@ func newRootCommand(ctx context.Context) *cobra.Command {
 		historyCommand(),
 		tickCommand(ctx),
 		recoveryKitCommand(ctx),
+		exportResticEnvCommand(ctx),
 		versionCommand(ctx),
 	)
 	root.InitDefaultCompletionCmd()
@@ -399,6 +400,17 @@ func recoveryKitCommand(ctx context.Context) *cobra.Command {
 			c.Flags().String("output", "", "file that will hold the recovery kit")
 			c.Flags().Bool("force", false, "overwrite an existing recovery kit")
 		})
+}
+
+func exportResticEnvCommand(ctx context.Context) *cobra.Command {
+	cmd := legacyCommand(ctx, "export-restic-env", "print RESTIC_* variables and a ready restic command",
+		func(_ context.Context, args []string) error { return cmdExportResticEnv(args) },
+		func(c *cobra.Command) {
+			configFlag(c)
+			c.Flags().Bool("json", false, "print the export as JSON")
+		})
+	cmd.Aliases = []string{"print-restic-command"}
+	return cmd
 }
 
 func versionCommand(ctx context.Context) *cobra.Command {

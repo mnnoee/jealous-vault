@@ -45,8 +45,14 @@ func TestRecordBackupAndCheck(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if st.Version != CurrentVersion {
+		t.Errorf("state version = %d, want %d", st.Version, CurrentVersion)
+	}
 	if st.LastRun == nil || st.LastRun.SnapshotID != "abc123" {
 		t.Fatalf("last run not stored: %+v", st.LastRun)
+	}
+	if st.LastRun.Version != CurrentVersion {
+		t.Errorf("run version = %d, want %d", st.LastRun.Version, CurrentVersion)
 	}
 	if st.LastSuccess == nil {
 		t.Fatal("last success not stored")
@@ -142,6 +148,11 @@ func TestHistoryAppendAndRead(t *testing.T) {
 	}
 	if len(runs) != 2 || runs[0].Error != "first" || runs[1].SnapshotID != "snap2" {
 		t.Fatalf("history = %+v", runs)
+	}
+	for i, run := range runs {
+		if run.Version != CurrentVersion {
+			t.Errorf("history[%d] version = %d, want %d", i, run.Version, CurrentVersion)
+		}
 	}
 
 	limited, err := store.History(1)

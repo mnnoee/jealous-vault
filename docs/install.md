@@ -9,13 +9,15 @@ state or units.
 
 A release contains:
 
-| File                        | Purpose             |
-| --------------------------- | ------------------- |
-| `jealous-vault-linux-amd64` | binary for x86-64   |
-| `jealous-vault-linux-arm64` | binary for arm64    |
-| `THIRD-PARTY-LICENSES.md`   | dependency licenses |
-| `SHA256SUMS`                | checksums           |
-| `SHA256SUMS.sig`            | detached signature  |
+| File                                | Purpose                       |
+| ----------------------------------- | ----------------------------- |
+| `jealous-vault-linux-amd64`         | binary for x86-64             |
+| `jealous-vault-linux-arm64`         | binary for arm64              |
+| `jealous-vault_<version>_amd64.deb` | Debian/Ubuntu package, x86-64 |
+| `jealous-vault_<version>_arm64.deb` | Debian/Ubuntu package, arm64  |
+| `THIRD-PARTY-LICENSES.md`           | dependency licenses           |
+| `SHA256SUMS`                        | checksums                     |
+| `SHA256SUMS.sig`                    | detached signature            |
 
 The signature is verified with `build/allowed_signers` from the repository. For tag `0.1.0`:
 
@@ -63,6 +65,28 @@ restic version
 ```
 
 `doctor` warns when the restic version is outside the tested range.
+
+### Debian/Ubuntu package
+
+The Forgejo release workflow builds `jealous-vault_<version>_amd64.deb` and
+`jealous-vault_<version>_arm64.deb`. The package does **not** depend on restic: restic is a
+`Suggests`, so install it separately. It also does not create a config or enable timers.
+
+```sh
+sudo apt-get install restic
+sudo dpkg -i jealous-vault_0.1.1_amd64.deb
+sudo apt-get install -f
+
+sudo jealous-vault init \
+  --repo s3:https://s3.example.com/backup/host1 \
+  --paths /etc,/home,/var/www \
+  --profile host
+sudo jealous-vault install --prefix /usr/bin
+sudo jealous-vault doctor
+```
+
+`--prefix /usr/bin` matters because the package binary is `/usr/bin/jealous-vault`. Package build
+details and removal are in [packaging/deb/README.md](../packaging/deb/README.md).
 
 ## Initial setup
 

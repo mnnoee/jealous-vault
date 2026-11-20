@@ -80,9 +80,10 @@ func New(o Options) *Client {
 	}
 }
 
-func (c *Client) environment() []string {
-	env := os.Environ()
-	env = append(env, "RESTIC_REPOSITORY="+c.repository)
+// EnvironmentEntries returns the restic-specific variables the agent adds,
+// sorted by name. It does not include the process environment.
+func (c *Client) EnvironmentEntries() []string {
+	env := []string{"RESTIC_REPOSITORY=" + c.repository}
 	if c.passwordFile != "" {
 		env = append(env, "RESTIC_PASSWORD_FILE="+c.passwordFile)
 	}
@@ -98,6 +99,10 @@ func (c *Client) environment() []string {
 		env = append(env, k+"="+c.env[k])
 	}
 	return env
+}
+
+func (c *Client) environment() []string {
+	return append(os.Environ(), c.EnvironmentEntries()...)
 }
 
 func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
@@ -146,16 +151,17 @@ type Summary struct {
 	TotalDuration       float64 `json:"total_duration"`
 }
 
-// Backup copies paths into the repository and returns restic's summary.
-func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
-	var summary Summary
-	if o.AttemptTimeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, o.AttemptTimeout)
-		defer cancel()
-	}
+// BackupArgs returns the restic backup arguments for a manual command. It is
+// the same builder Backup uses, without --json.
+func BackupArgs(o BackupOptions) []string {
+	return backupArgs(o, false)
+}
 
-	args := []string{"backup", "--json"}
+func backupArgs(o BackupOptions, jsonOutput bool) []string {
+	args := []string{"backup"}
+	if jsonOutput {
+		args = append(args, "--json")
+	}
 	if o.Host != "" {
 		args = append(args, "--host", o.Host)
 	}
@@ -180,8 +186,19 @@ func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
 	for _, pattern := range o.Excludes {
 		args = append(args, "--exclude", pattern)
 	}
-	args = append(args, o.Paths...)
+	return append(args, o.Paths...)
+}
 
+// Backup copies paths into the repository and returns restic's summary.
+func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
+	var summary Summary
+	if o.AttemptTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, o.AttemptTimeout)
+		defer cancel()
+	}
+
+	args := backupArgs(o, true)
 	cmd := c.command(ctx, args...)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

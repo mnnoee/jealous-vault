@@ -6,23 +6,46 @@
 
 ## Ежедневные команды
 
-| Команда                          | Что делает                                         |
-| -------------------------------- | -------------------------------------------------- |
-| `jealous-vault status`           | последний backup/check/verify, свежесть, lock      |
-| `jealous-vault history`          | последние запуски из JSONL                         |
-| `jealous-vault snapshots`        | снапшоты в репозитории                             |
-| `jealous-vault doctor`           | конфиг, restic, репозиторий, пути, таймеры, алерты |
-| `jealous-vault backup`           | запуск backup вручную                              |
-| `jealous-vault backup --dry-run` | показать, что попадёт в backup                     |
-| `jealous-vault check`            | проверка целостности репозитория                   |
-| `jealous-vault test-restore`     | тестовый restore с проверкой                       |
-| `jealous-vault freshness`        | проверка возраста backup                           |
-| `jealous-vault repo unlock`      | удалить stale-lock restic                          |
+| Команда                           | Что делает                                             |
+| --------------------------------- | ------------------------------------------------------ |
+| `jealous-vault status`            | последний backup/check/verify, свежесть, lock          |
+| `jealous-vault history`           | последние запуски из JSONL                             |
+| `jealous-vault snapshots`         | снапшоты в репозитории                                 |
+| `jealous-vault doctor`            | конфиг, restic, репозиторий, пути, таймеры, алерты     |
+| `jealous-vault backup`            | запуск backup вручную                                  |
+| `jealous-vault backup --dry-run`  | показать, что попадёт в backup                         |
+| `jealous-vault check`             | проверка целостности репозитория                       |
+| `jealous-vault test-restore`      | тестовый restore с проверкой                           |
+| `jealous-vault freshness`         | проверка возраста backup                               |
+| `jealous-vault repo unlock`       | удалить stale-lock restic                              |
+| `jealous-vault export-restic-env` | вывести RESTIC\_\* переменные и готовую команду restic |
 
 Все команды принимают `--config`, большинство - `--json` и `--verbose`.
 
 `status` возвращает ненулевой код, если последний backup failed или старше `--max-age` (по умолчанию
 25h). Это удобно для мониторинга.
+
+## Ручной выход через restic
+
+`export-restic-env` (алиас `print-restic-command`) выводит переменные репозитория и команды restic
+для текущего job:
+
+```sh
+sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml
+sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml --json
+```
+
+В выводе:
+
+- `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` и `RESTIC_CACHE_DIR`;
+- строка `source` для `repository.env_file`, чтобы credentials S3 и других бэкендов загрузились,
+  но не печатались;
+- команда `restic backup` с host, excludes, tags и путями из конфига;
+- `restic forget` с политикой ретенции и примеры `restic snapshots`/`restic restore`.
+
+Печатаются пути к секретам, а не их содержимое. Команда не требует установленного restic и не
+обращается к репозиторию. Используйте её, когда агент недоступен, перед обновлением или как
+аварийный путь для оператора, которому передали хост.
 
 ## Жизненный цикл backup
 
@@ -166,6 +189,18 @@ jealous-vault repo stats
 jealous-vault install --config /etc/jealous-vault/usr.toml
 jealous-vault uninstall --config /etc/jealous-vault/usr.toml
 ```
+
+## Проверки doctor
+
+`doctor` - главный инструмент поддержки. Он проверяет конфиг и права на секреты, restic, доступ к
+репозиторию, пути, таймеры, формат state/history и профиль backup. Он предупреждает, когда:
+
+- state или history старше формата версии 1;
+- unit таймера установлен, но выключен, или включён, но не активен;
+- `backup.profile` не `host`, `vm-dumps` или `custom`.
+
+Он падает, когда конфиг, пароль, env или ключ отсутствует или читается группой/остальными. Это
+сделано намеренно: агент отказывается работать с выставленным секретом.
 
 ## Блокировки
 

@@ -27,6 +27,13 @@ jobs:
       - name: test
         run: go test ./...
 
+      - name: fuzz smoke
+        run: |
+          set -eu
+          go test ./internal/config -run=^$ -fuzz=FuzzParse -fuzztime=10s
+          go test ./internal/state -run=^$ -fuzz=FuzzLoadState -fuzztime=10s
+          go test ./internal/state -run=^$ -fuzz=FuzzHistory -fuzztime=10s
+
       - name: govulncheck
         run: |
           set -eu
@@ -63,3 +70,15 @@ jobs:
             exit 1
           fi
           "$QEMU" -cpu qemu64 dist/jealous-vault-linux-amd64 version
+
+      - name: deb
+        run: |
+          set -eu
+          command -v dpkg-deb >/dev/null || {
+            echo "dpkg-deb is missing; rebuild the jealous-vault-ci:1 image"
+            exit 1
+          }
+          version="$(cat VERSION)"
+          ./build/deb.sh "$version" amd64 dist/jealous-vault-linux-amd64
+          ./build/deb.sh "$version" arm64 dist/jealous-vault-linux-arm64
+          ls -lh dist/*.deb

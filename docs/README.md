@@ -37,16 +37,17 @@ Russian documentation: [ru/README.md](ru/README.md).
 
 ## Project documents
 
-| File                                     | What it covers                                              |
-| ---------------------------------------- | ----------------------------------------------------------- |
-| [mvp.md](mvp.md)                         | MVP criteria, public product, commercial extensions         |
-| [../STABILITY.md](../STABILITY.md)       | public API, deprecation policy, breaking changes            |
-| [../CHANGELOG.md](../CHANGELOG.md)       | release history                                             |
-| [../MAINTAINERS.md](../MAINTAINERS.md)   | maintainer model, response targets, bus factor              |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | DCO, checks, review expectations                            |
-| [../ECOSYSTEM.md](../ECOSYSTEM.md)       | plugins, commercial extensions, alternative implementations |
-| [../CLA.md](../CLA.md)                   | commercial extension contributor licence agreement          |
-| [adr/README.md](adr/README.md)           | architecture decision records                               |
+| File                                                     | What it covers                                              |
+| -------------------------------------------------------- | ----------------------------------------------------------- |
+| [mvp.md](mvp.md)                                         | MVP criteria, public product, commercial extensions         |
+| [../STABILITY.md](../STABILITY.md)                       | public API, deprecation policy, breaking changes            |
+| [../CHANGELOG.md](../CHANGELOG.md)                       | release history                                             |
+| [../MAINTAINERS.md](../MAINTAINERS.md)                   | maintainer model, response targets, bus factor              |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md)                 | DCO, checks, review expectations                            |
+| [../ECOSYSTEM.md](../ECOSYSTEM.md)                       | plugins, commercial extensions, alternative implementations |
+| [../CLA.md](../CLA.md)                                   | commercial extension contributor licence agreement          |
+| [../packaging/deb/README.md](../packaging/deb/README.md) | Debian/Ubuntu package build and install                     |
+| [adr/README.md](adr/README.md)                           | architecture decision records                               |
 
 ## Status
 

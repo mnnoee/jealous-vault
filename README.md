@@ -88,6 +88,7 @@ Signature verification and requirements: [docs/install.md](docs/install.md).
 | Databases     | `pg_dump`, `mysqldump`/`mariadb-dump`, a separate dump-only job  |
 | Alerts        | Telegram (including forum topics), email, webhooks, healthchecks |
 | Multiple jobs | separate config, state, cache, password and units per job        |
+| Manual escape | `export-restic-env`, `recovery-kit`, documented restic commands  |
 | Proxmox       | partial support: `vzdump`, `restore-vm`                          |
 
 ## Platforms

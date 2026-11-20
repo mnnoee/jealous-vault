@@ -7,6 +7,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
@@ -151,6 +152,15 @@ func hasResult(report Report, name string, level Level) bool {
 	return false
 }
 
+func resultDetail(report Report, name string) string {
+	for _, r := range report.Results {
+		if r.Name == name {
+			return r.Detail
+		}
+	}
+	return ""
+}
+
 func TestSupportedResticVersionIsOK(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.ResticBinary = fakeCommand(t, t.TempDir(), "restic", `case "$1" in
@@ -183,5 +193,102 @@ esac
 	}
 	if !hasResult(report, "restic", LevelWarn) {
 		t.Errorf("version check did not warn: %+v", report.Results)
+	}
+}
+
+func TestOldStateFormatWarns(t *testing.T) {
+	cfg := testConfig(t)
+	if err := os.MkdirAll(filepath.Dir(cfg.StateFile), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	stateBody := `{"last_run":{"kind":"backup","status":"success","duration_seconds":1}}`
+	if err := os.WriteFile(cfg.StateFile, []byte(stateBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	historyBody := `{"kind":"backup","status":"success","duration_seconds":1}` + "\n"
+	cfg.HistoryFile = filepath.Join(filepath.Dir(cfg.StateFile), "history.jsonl")
+	if err := os.WriteFile(cfg.HistoryFile, []byte(historyBody), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("old format must be a warning: %+v", report.Results)
+	}
+	if !hasResult(report, "state format", LevelWarn) {
+		t.Fatalf("old state format was not reported: %+v", report.Results)
+	}
+	if detail := resultDetail(report, "state format"); !strings.Contains(detail, "no format version") {
+		t.Errorf("state format detail = %q", detail)
+	}
+}
+
+func TestCurrentStateFormatIsOK(t *testing.T) {
+	cfg := testConfig(t)
+	if _, err := (state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile}).Record(state.Run{
+		Kind:       state.KindBackup,
+		Status:     state.StatusSuccess,
+		SnapshotID: "abc",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !hasResult(report, "state format", LevelOK) {
+		t.Errorf("current state format is not ok: %+v", report.Results)
+	}
+}
+
+func TestUnknownProfileWarns(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Backup.Profile = "bogus"
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("unknown profile must be a warning: %+v", report.Results)
+	}
+	if !hasResult(report, "profile", LevelWarn) {
+		t.Errorf("unknown profile was not reported: %+v", report.Results)
+	}
+}
+
+func TestInstalledDisabledTimerWarns(t *testing.T) {
+	cfg := testConfig(t)
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", `case "$1" in
+cat) exit 0;;
+is-enabled) exit 1;;
+is-active) exit 0;;
+*) exit 0;;
+esac
+`)
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if report.Failed {
+		t.Fatalf("a disabled timer must be a warning: %+v", report.Results)
+	}
+	if !hasResult(report, "systemd", LevelWarn) {
+		t.Fatalf("disabled timer was not reported: %+v", report.Results)
+	}
+	if detail := resultDetail(report, "systemd"); !strings.Contains(detail, "installed but disabled") {
+		t.Errorf("systemd detail = %q", detail)
+	}
+}
+
+func TestLoosePasswordPermissionsFail(t *testing.T) {
+	cfg := testConfig(t)
+	if err := os.Chmod(cfg.Repository.PasswordFile, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	systemctl := fakeCommand(t, t.TempDir(), "systemctl", "exit 0\n")
+
+	report := Run(context.Background(), cfg, Options{Systemctl: systemctl})
+	if !report.Failed {
+		t.Fatal("a readable password file must fail doctor")
+	}
+	if !hasResult(report, "password", LevelFail) {
+		t.Errorf("loose password permissions were not reported: %+v", report.Results)
 	}
 }

@@ -24,16 +24,16 @@ JealousVault - открытый проект, а не продукт за шла
 
 ## Публичный продукт
 
-| Область        | Что входит                                                           |
-| -------------- | -------------------------------------------------------------------- |
-| Один хост      | backup, check, prune, restore                                        |
-| Планировщики   | systemd, cron, OpenRC, runit, `tick`                                 |
-| Хранение       | local, SFTP, S3-совместимое (включая Backblaze B2), REST             |
-| Базы данных    | PostgreSQL, MySQL/MariaDB                                            |
-| Базовые алерты | email, Telegram, JSON webhook, healthchecks-совместимый ping         |
-| Проверки       | `doctor`, `history`, `test-restore`, блокировки, audit-журнал        |
-| Ручной выход   | recovery kit, документированные команды restic, примеры конфига      |
-| Документация   | install, configuration, operations, restore, limits, troubleshooting |
+| Область        | Что входит                                                                           |
+| -------------- | ------------------------------------------------------------------------------------ |
+| Один хост      | backup, check, prune, restore                                                        |
+| Планировщики   | systemd, cron, OpenRC, runit, `tick`                                                 |
+| Хранение       | local, SFTP, S3-совместимое (включая Backblaze B2), REST                             |
+| Базы данных    | PostgreSQL, MySQL/MariaDB                                                            |
+| Базовые алерты | email, Telegram, JSON webhook, healthchecks-совместимый ping                         |
+| Проверки       | `doctor`, `history`, `test-restore`, блокировки, audit-журнал                        |
+| Ручной выход   | `export-restic-env`, recovery kit, документированные команды restic, примеры конфига |
+| Документация   | install, configuration, operations, restore, limits, troubleshooting                 |
 
 Публичный продукт никогда не урезается, чтобы коммерческое расширение выглядело лучше. Restore,
 проверки целостности, security-исправления, базовые алерты и документация остаются в нём.
@@ -106,9 +106,9 @@ S3 (основной) или local (тесты)
 | ------------------------ | ------------------------------------------------------------------- | --------------------------------------------------- |
 | Golden path              | Работает вручную на живых хостах, S3 и PostgreSQL                   | Нет пакета; нет единого проверенного пути установки |
 | Restore-тест в CI        | Unit-тесты используют fake restic; restore проверялся вручную в LXC | Нет job с настоящим restic в CI                     |
-| Установка одной командой | Бинарный ассет плюс `jealous-vault install`                         | Нет пакетов `deb`/`rpm`/`AUR`                       |
+| Установка одной командой | Бинарный ассет, `jealous-vault install` и пакет `.deb`              | Нет пакетов `rpm`/`AUR`                             |
 | Версионированная схема   | Строгий TOML, неизвестные ключи отвергаются                         | Нет версии схемы и `config migrate`                 |
-| Ручной выход             | `recovery-kit` пишет пароль и окружение restic                      | Нет небольшого помощника `export-restic-env`        |
+| Ручной выход             | `export-restic-env` выводит переменные, команды и учёт дампов       | Покрыто                                             |
 | Незнакомец проходит путь | Документация покрывает путь                                         | Путь ещё не проверен на стороннем человеке          |
 | Явные ограничения        | [platforms-and-limits.md](platforms-and-limits.md)                  | Держать ссылку с README и обновлять                 |
 

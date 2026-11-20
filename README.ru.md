@@ -87,6 +87,7 @@ sudo jealous-vault backup
 | Базы данных    | `pg_dump`, `mysqldump`/`mariadb-dump`, отдельный job только для дампов |
 | Алерты         | Telegram (включая forum topics), email, webhooks, healthchecks         |
 | Несколько job  | свои конфиг, state, cache, пароль и юниты на каждый job                |
+| Ручной выход   | `export-restic-env`, `recovery-kit`, документированные команды restic  |
 | Proxmox        | частичная поддержка: `vzdump`, `restore-vm`                            |
 
 ## Платформы

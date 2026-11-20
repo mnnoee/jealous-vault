@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["[0-9]*"]
 
 # The Forgejo artifact API is not reachable from this runner (the internal CA
 # is missing from the artifact client trust store), so the build and publish
@@ -41,6 +41,16 @@ jobs:
             go build -trimpath -ldflags "${LDFLAGS}" \
             -o dist/jealous-vault-linux-arm64 ./cmd/jealous-vault
 
+      - name: deb
+        run: |
+          set -eu
+          command -v dpkg-deb >/dev/null || {
+            echo "dpkg-deb is missing; rebuild the jealous-vault-ci:1 image"
+            exit 1
+          }
+          ./build/deb.sh "${GITHUB_REF_NAME}" amd64 dist/jealous-vault-linux-amd64
+          ./build/deb.sh "${GITHUB_REF_NAME}" arm64 dist/jealous-vault-linux-arm64
+
       - name: amd64 v1 smoke on qemu64
         run: |
           set -eu
@@ -66,6 +76,8 @@ jobs:
           set -eu
           cd dist
           sha256sum jealous-vault-linux-amd64 jealous-vault-linux-arm64 \
+            "jealous-vault_${GITHUB_REF_NAME}_amd64.deb" \
+            "jealous-vault_${GITHUB_REF_NAME}_arm64.deb" \
             THIRD-PARTY-LICENSES.md > SHA256SUMS
 
       - name: sign
@@ -115,6 +127,8 @@ jobs:
           for file in \
             jealous-vault-linux-amd64 \
             jealous-vault-linux-arm64 \
+            "jealous-vault_${TAG}_amd64.deb" \
+            "jealous-vault_${TAG}_arm64.deb" \
             THIRD-PARTY-LICENSES.md \
             SHA256SUMS \
             SHA256SUMS.sig; do
@@ -124,4 +138,4 @@ jobs:
               -F "attachment=@dist/$file" \
               "$api/releases/$release_id/assets?name=$file" >/dev/null
           done
-          echo "release $TAG created with 5 assets"
+          echo "release $TAG created with 7 assets"

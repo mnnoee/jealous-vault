@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+// CurrentVersion is the state and history format written by this build.
+// Version 0 means the file predates the version field (0.1.0 and older);
+// it stays readable and is rewritten as CurrentVersion on the next save.
+const CurrentVersion = 1
+
 // Run kinds.
 const (
 	KindBackup = "backup"
@@ -31,6 +36,7 @@ const (
 
 // Run is one finished backup or check.
 type Run struct {
+	Version         int       `json:"version"`
 	Kind            string    `json:"kind"`
 	StartedAt       time.Time `json:"started_at"`
 	FinishedAt      time.Time `json:"finished_at"`
@@ -46,6 +52,7 @@ type Run struct {
 
 // State is the whole persisted document.
 type State struct {
+	Version     int  `json:"version"`
 	LastRun     *Run `json:"last_run,omitempty"`
 	LastSuccess *Run `json:"last_success,omitempty"`
 	LastCheck   *Run `json:"last_check,omitempty"`
@@ -81,6 +88,9 @@ func (s Store) Load() (*State, error) {
 		}
 		return &State{}, nil
 	}
+	if st.Version > CurrentVersion {
+		return nil, fmt.Errorf("state %s: format version %d is newer than supported %d", s.Path, st.Version, CurrentVersion)
+	}
 	return &st, nil
 }
 
@@ -102,6 +112,12 @@ func quarantine(path string) (string, error) {
 
 // Save writes the state atomically with owner-only permissions.
 func (s Store) Save(st *State) error {
+	if st.Version == 0 {
+		st.Version = CurrentVersion
+	}
+	if st.Version > CurrentVersion {
+		return fmt.Errorf("state format version %d is newer than supported %d", st.Version, CurrentVersion)
+	}
 	dir := filepath.Dir(s.Path)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
@@ -134,6 +150,7 @@ func (s Store) Save(st *State) error {
 
 // Record stores a run and updates the success pointer when appropriate.
 func (s Store) Record(run Run) (*State, error) {
+	run.Version = CurrentVersion
 	st, err := s.Load()
 	if err != nil {
 		return nil, err
@@ -168,6 +185,9 @@ func (s Store) historyPath() string {
 // Append adds one run to the JSONL history and rotates the file when it grows
 // past maxHistoryBytes. The caller normally holds the run lock already.
 func (s Store) Append(run Run) error {
+	if run.Version == 0 {
+		run.Version = CurrentVersion
+	}
 	path := s.historyPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
@@ -228,6 +248,9 @@ func (s Store) History(limit int) ([]Run, error) {
 			}
 			torn = append([]byte(nil), line...)
 			continue
+		}
+		if run.Version > CurrentVersion {
+			return nil, fmt.Errorf("history %s: record format version %d is newer than supported %d", path, run.Version, CurrentVersion)
 		}
 		if torn != nil {
 			return nil, fmt.Errorf("parse %s: malformed history record in the middle of the file", path)

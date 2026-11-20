@@ -24,16 +24,16 @@ proven. A capability that cannot be restored is not a capability.
 
 ## The public product
 
-| Area                | Included                                                             |
-| ------------------- | -------------------------------------------------------------------- |
-| One host            | backup, check, prune, restore                                        |
-| Schedulers          | systemd, cron, OpenRC, runit, `tick`                                 |
-| Storage             | local, SFTP, S3-compatible (including Backblaze B2), REST            |
-| Databases           | PostgreSQL, MySQL/MariaDB                                            |
-| Basic alerts        | email, Telegram, JSON webhook, healthchecks-style ping               |
-| Verification        | `doctor`, `history`, `test-restore`, lock handling, audit journal    |
-| Manual escape hatch | recovery kit, documented restic commands, config examples            |
-| Documentation       | install, configuration, operations, restore, limits, troubleshooting |
+| Area                | Included                                                                       |
+| ------------------- | ------------------------------------------------------------------------------ |
+| One host            | backup, check, prune, restore                                                  |
+| Schedulers          | systemd, cron, OpenRC, runit, `tick`                                           |
+| Storage             | local, SFTP, S3-compatible (including Backblaze B2), REST                      |
+| Databases           | PostgreSQL, MySQL/MariaDB                                                      |
+| Basic alerts        | email, Telegram, JSON webhook, healthchecks-style ping                         |
+| Verification        | `doctor`, `history`, `test-restore`, lock handling, audit journal              |
+| Manual escape hatch | `export-restic-env`, recovery kit, documented restic commands, config examples |
+| Documentation       | install, configuration, operations, restore, limits, troubleshooting           |
 
 The public product is never reduced to make a commercial extension look better. Restore, integrity
 checks, security fixes, basic alerts and documentation stay in it.
@@ -106,9 +106,9 @@ predictably.
 | ----------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
 | Golden path             | Works manually on real hosts, S3 and PostgreSQL                      | Not packaged; not a single verified install path |
 | Restore test in CI      | Unit tests use a fake restic; restores were verified manually in LXC | No real-restic restore job in CI                 |
-| One-command install     | Binary asset plus `jealous-vault install`                            | No `deb`/`rpm`/`AUR` package                     |
+| One-command install     | Binary asset, `jealous-vault install`, and a `.deb` package          | No `rpm`/`AUR` package                           |
 | Versioned config schema | Strict TOML, unknown keys rejected                                   | No schema version, no `config migrate`           |
-| Manual escape hatch     | `recovery-kit` writes the password and restic environment            | No small `export-restic-env` helper              |
+| Manual escape hatch     | `export-restic-env` prints variables, commands and dump handling     | Covered                                          |
 | Stranger can finish     | Documentation covers the path                                        | Not yet tested with an outsider                  |
 | Explicit limits         | [platforms-and-limits.md](platforms-and-limits.md)                   | Must stay linked from the README and updated     |
 

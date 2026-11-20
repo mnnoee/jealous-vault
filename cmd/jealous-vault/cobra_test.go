@@ -79,7 +79,7 @@ func TestRootCommandListsEverything(t *testing.T) {
 		"init", "repo", "install", "uninstall", "backup", "vzdump",
 		"restore-vm", "snapshots", "mount", "restore", "test-restore",
 		"check", "doctor", "freshness", "status", "history", "tick",
-		"recovery-kit", "version", "completion",
+		"recovery-kit", "export-restic-env", "version", "completion",
 	}
 	for _, name := range expected {
 		cmd, _, err := root.Find([]string{name})

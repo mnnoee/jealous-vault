@@ -6,23 +6,46 @@ This section explains what runs on a schedule and what to do when something fail
 
 ## Daily commands
 
-| Command                          | What it does                                      |
-| -------------------------------- | ------------------------------------------------- |
-| `jealous-vault status`           | last backup/check/verify, freshness, lock         |
-| `jealous-vault history`          | recent runs from the JSONL history                |
-| `jealous-vault snapshots`        | snapshots in the repository                       |
-| `jealous-vault doctor`           | config, restic, repository, paths, timers, alerts |
-| `jealous-vault backup`           | run a backup now                                  |
-| `jealous-vault backup --dry-run` | show what would be backed up                      |
-| `jealous-vault check`            | verify repository integrity                       |
-| `jealous-vault test-restore`     | test restore with verification                    |
-| `jealous-vault freshness`        | check the age of the last backup                  |
-| `jealous-vault repo unlock`      | remove stale restic locks                         |
+| Command                           | What it does                                          |
+| --------------------------------- | ----------------------------------------------------- |
+| `jealous-vault status`            | last backup/check/verify, freshness, lock             |
+| `jealous-vault history`           | recent runs from the JSONL history                    |
+| `jealous-vault snapshots`         | snapshots in the repository                           |
+| `jealous-vault doctor`            | config, restic, repository, paths, timers, alerts     |
+| `jealous-vault backup`            | run a backup now                                      |
+| `jealous-vault backup --dry-run`  | show what would be backed up                          |
+| `jealous-vault check`             | verify repository integrity                           |
+| `jealous-vault test-restore`      | test restore with verification                        |
+| `jealous-vault freshness`         | check the age of the last backup                      |
+| `jealous-vault repo unlock`       | remove stale restic locks                             |
+| `jealous-vault export-restic-env` | print RESTIC\_\* variables and a ready restic command |
 
 All commands accept `--config`; most accept `--json` and `--verbose`.
 
 `status` exits non-zero when the last backup failed or is older than `--max-age` (25h by default).
 This is useful for monitoring.
+
+## Manual restic fallback
+
+`export-restic-env` (alias `print-restic-command`) prints the repository variables and restic
+commands for the current job:
+
+```sh
+sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml
+sudo jealous-vault export-restic-env --config /etc/jealous-vault/config.toml --json
+```
+
+The output contains:
+
+- `RESTIC_REPOSITORY`, `RESTIC_PASSWORD_FILE` and `RESTIC_CACHE_DIR`;
+- a `source` line for `repository.env_file`, so S3 and other backend credentials are loaded without
+  being printed;
+- a `restic backup` command with the host, excludes, tags and paths from the config;
+- `restic forget` with the retention policy, and `restic snapshots`/`restic restore` examples.
+
+It prints paths to secrets, not their contents. It does not need restic installed and does not
+touch the repository. Use it when the agent is unavailable, before an upgrade, or as the emergency
+path for the operator who inherits the host.
 
 ## Backup lifecycle
 
@@ -166,6 +189,18 @@ Install and remove per config:
 jealous-vault install --config /etc/jealous-vault/usr.toml
 jealous-vault uninstall --config /etc/jealous-vault/usr.toml
 ```
+
+## Doctor checks
+
+`doctor` is the main support tool. It checks config and secret permissions, restic, repository
+access, paths, timers, state and history format, and the backup profile. It warns when:
+
+- state or history predates format version 1;
+- a timer unit is installed but disabled, or enabled but not active;
+- `backup.profile` is not `host`, `vm-dumps` or `custom`.
+
+It fails when a config, password, env or key file is missing or readable by group/others. That is
+deliberate: the agent refuses to run with an exposed secret.
 
 ## Locks
 

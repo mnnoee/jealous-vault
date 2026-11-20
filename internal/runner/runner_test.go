@@ -93,7 +93,7 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(args), "backup --json --host node-1 /etc") {
+	if !strings.Contains(string(args), "backup --json --host node-1 --one-file-system /etc") {
 		t.Errorf("restic args = %q", args)
 	}
 
