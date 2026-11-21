@@ -35,6 +35,7 @@ import (
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
 	"github.com/mnnoee/jealous-vault/internal/runner"
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 	"github.com/mnnoee/jealous-vault/internal/schedule"
 	"github.com/mnnoee/jealous-vault/internal/service"
 	"github.com/mnnoee/jealous-vault/internal/sftp"
@@ -1861,7 +1862,7 @@ func lastFinished(run *state.Run) time.Time {
 }
 
 func readStamp(path string) time.Time {
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		return time.Time{}
 	}

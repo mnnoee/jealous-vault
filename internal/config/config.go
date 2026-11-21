@@ -689,6 +689,11 @@ func (c *Config) Validate() error {
 	if c.Repository.URL == "" {
 		return errors.New("repository.url is required")
 	}
+	if c.Path != "" {
+		if err := rejectControl("config path", c.Path); err != nil {
+			return err
+		}
+	}
 	if c.Repository.PasswordFile == "" && c.Repository.Env["RESTIC_PASSWORD"] == "" {
 		return errors.New("repository.password_file or RESTIC_PASSWORD in repository.env is required")
 	}
