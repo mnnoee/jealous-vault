@@ -202,3 +202,71 @@ func TestEmailSMTPPlain(t *testing.T) {
 		t.Fatal("SMTP server did not receive the message")
 	}
 }
+
+func TestSendTestEmailUsesAgentHost(t *testing.T) {
+	dir := t.TempDir()
+	messageFile := filepath.Join(dir, "message")
+	sendmail := filepath.Join(dir, "sendmail")
+	script := "#!/bin/sh\ncat > " + messageFile + "\n"
+	if err := os.WriteFile(sendmail, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	err := SendTestEmail(context.Background(), EmailOptions{
+		Enabled:   true,
+		Mode:      "local",
+		From:      "backups@example.com",
+		To:        []string{"admin@example.com"},
+		Sendmail:  sendmail,
+		AgentHost: "node-42",
+		Timeout:   time.Second,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(messageFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "<strong>Host</strong></td><td>node-42") {
+		t.Fatalf("test email does not use AgentHost:\n%s", text)
+	}
+	if strings.Contains(text, "<strong>Host</strong></td><td>jealous-vault") {
+		t.Fatalf("test email still contains the hardcoded host:\n%s", text)
+	}
+}
+
+func TestMessageIDUsesHost(t *testing.T) {
+	sender := newEmailSender(EmailOptions{
+		Enabled: true,
+		Mode:    "local",
+		From:    "backups@example.com",
+		To:      []string{"admin@example.com"},
+	})
+	message, err := sender.message(Event{
+		Event:  "backup",
+		Status: "success",
+		Host:   "node-42",
+		Time:   time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(message), "@node-42>") {
+		t.Fatalf("Message-ID does not use the agent host:\n%s", message)
+	}
+}
+
+func TestLocalEndpoint(t *testing.T) {
+	sender := newEmailSender(EmailOptions{Mode: "local"})
+	host, addr := sender.localEndpoint()
+	if host != "127.0.0.1" || addr != "127.0.0.1:25" {
+		t.Fatalf("default local endpoint = %q, %q", host, addr)
+	}
+
+	sender = newEmailSender(EmailOptions{Mode: "local", Host: "mx.jv.test", Port: 2525})
+	host, addr = sender.localEndpoint()
+	if host != "mx.jv.test" || addr != "mx.jv.test:2525" {
+		t.Fatalf("configured local endpoint = %q, %q", host, addr)
+	}
+}

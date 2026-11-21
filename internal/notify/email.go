@@ -13,8 +13,11 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
+	"log/slog"
 	"net"
 	"net/smtp"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -33,17 +36,19 @@ var (
 
 // EmailOptions is a resolved email configuration.
 type EmailOptions struct {
-	Enabled  bool
-	Mode     string
-	From     string
-	To       []string
-	Host     string
-	Port     int
-	Username string
-	Password string
-	Security string
-	Timeout  time.Duration
-	Sendmail string
+	Enabled   bool
+	Mode      string
+	From      string
+	To        []string
+	Host      string
+	AgentHost string
+	Port      int
+	Username  string
+	Password  string
+	Security  string
+	Timeout   time.Duration
+	Sendmail  string
+	Logger    *slog.Logger
 }
 
 // EmailOptionsFromConfig builds resolved options for the notifier.
@@ -54,22 +59,24 @@ func EmailOptionsFromConfig(cfg *config.Config) EmailOptions {
 		timeout = 15 * time.Second
 	}
 	return EmailOptions{
-		Enabled:  e.Enabled,
-		Mode:     e.Mode,
-		From:     e.From,
-		To:       append([]string(nil), e.To...),
-		Host:     e.Host,
-		Port:     e.Port,
-		Username: e.Username,
-		Password: cfg.EmailPassword,
-		Security: e.Security,
-		Timeout:  timeout,
-		Sendmail: "/usr/sbin/sendmail",
+		Enabled:   e.Enabled,
+		Mode:      e.Mode,
+		From:      e.From,
+		To:        append([]string(nil), e.To...),
+		Host:      e.Host,
+		AgentHost: cfg.Host,
+		Port:      e.Port,
+		Username:  e.Username,
+		Password:  cfg.EmailPassword,
+		Security:  e.Security,
+		Timeout:   timeout,
+		Sendmail:  "/usr/sbin/sendmail",
 	}
 }
 
 type emailSender struct {
 	opts EmailOptions
+	log  *slog.Logger
 }
 
 func newEmailSender(o EmailOptions) *emailSender {
@@ -79,7 +86,11 @@ func newEmailSender(o EmailOptions) *emailSender {
 	if o.Sendmail == "" {
 		o.Sendmail = "/usr/sbin/sendmail"
 	}
-	return &emailSender{opts: o}
+	log := o.Logger
+	if log == nil {
+		log = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	return &emailSender{opts: o, log: log}
 }
 
 func (s *emailSender) Send(ctx context.Context, ev Event) error {
@@ -89,12 +100,26 @@ func (s *emailSender) Send(ctx context.Context, ev Event) error {
 	}
 	switch s.opts.Mode {
 	case "local":
+		s.log.Info("sending email", "mode", "local", "sendmail", s.opts.Sendmail, "to", s.opts.To)
 		return s.sendLocal(ctx, message)
 	case "smtp":
+		s.log.Info("sending email", "mode", "smtp", "host", s.opts.Host, "port", s.opts.Port, "security", s.opts.Security, "to", s.opts.To)
 		return s.sendSMTP(ctx, message)
 	default:
 		return fmt.Errorf("unknown email mode %q", s.opts.Mode)
 	}
+}
+
+func (s *emailSender) localEndpoint() (string, string) {
+	host := s.opts.Host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := s.opts.Port
+	if port == 0 {
+		port = 25
+	}
+	return host, net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func (s *emailSender) sendLocal(ctx context.Context, message []byte) error {
@@ -112,11 +137,12 @@ func (s *emailSender) sendLocal(ctx context.Context, message []byte) error {
 		}
 		return nil
 	}
-	conn, err := (&net.Dialer{Timeout: s.opts.Timeout}).DialContext(ctx, "tcp", "127.0.0.1:25")
+	host, addr := s.localEndpoint()
+	conn, err := (&net.Dialer{Timeout: s.opts.Timeout}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return err
 	}
-	client, err := smtp.NewClient(conn, "localhost")
+	client, err := smtp.NewClient(conn, host)
 	if err != nil {
 		conn.Close()
 		return err
@@ -209,21 +235,17 @@ func (s *emailSender) Check(ctx context.Context) error {
 		if _, err := executil.LookPath(s.opts.Sendmail); err == nil {
 			return nil
 		}
-		conn, err := (&net.Dialer{Timeout: s.opts.Timeout}).DialContext(ctx, "tcp", "127.0.0.1:25")
+		host, addr := s.localEndpoint()
+		conn, err := (&net.Dialer{Timeout: s.opts.Timeout}).DialContext(ctx, "tcp", addr)
 		if err != nil {
-			return fmt.Errorf("no sendmail and localhost:25 is not reachable: %w", err)
+			return fmt.Errorf("no sendmail and %s is not reachable: %w", addr, err)
 		}
-		client, err := smtp.NewClient(conn, "localhost")
+		client, err := smtp.NewClient(conn, host)
 		if err != nil {
 			conn.Close()
 			return err
 		}
 		defer client.Close()
-		if s.opts.Username != "" {
-			if err := client.Auth(smtp.PlainAuth("", s.opts.Username, s.opts.Password, "localhost")); err != nil {
-				return err
-			}
-		}
 		return client.Quit()
 	}
 	client, err := s.connect(ctx)
@@ -251,10 +273,17 @@ func SendTestEmail(ctx context.Context, o EmailOptions) error {
 }
 
 func (s *emailSender) Test(ctx context.Context) error {
+	host := s.opts.AgentHost
+	if host == "" {
+		host, _ = os.Hostname()
+	}
+	if host == "" {
+		host = "localhost"
+	}
 	event := Event{
 		Event:  "test",
 		Status: "success",
-		Host:   "jealous-vault",
+		Host:   host,
 		Time:   time.Now(),
 	}
 	return s.Send(ctx, event)
@@ -318,12 +347,21 @@ func (s *emailSender) message(ev Event) ([]byte, error) {
 		subject = "[JealousVault] test email"
 	}
 
+	messageIDHost := sanitizeMessageIDHost(ev.Host)
+	if messageIDHost == "" {
+		messageIDHost, _ = os.Hostname()
+		messageIDHost = sanitizeMessageIDHost(messageIDHost)
+	}
+	if messageIDHost == "" {
+		messageIDHost = "localhost"
+	}
+
 	var message bytes.Buffer
 	fmt.Fprintf(&message, "From: %s\r\n", header(s.opts.From))
 	fmt.Fprintf(&message, "To: %s\r\n", header(strings.Join(s.opts.To, ", ")))
 	fmt.Fprintf(&message, "Subject: %s\r\n", header(subject))
 	fmt.Fprintf(&message, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
-	fmt.Fprintf(&message, "Message-ID: <%s@jealous-vault>\r\n", randomToken(16))
+	fmt.Fprintf(&message, "Message-ID: <%s@%s>\r\n", randomToken(16), messageIDHost)
 	message.WriteString("MIME-Version: 1.0\r\n")
 	fmt.Fprintf(&message, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary)
 	fmt.Fprintf(&message, "--%s\r\n", boundary)
@@ -340,6 +378,19 @@ func (s *emailSender) message(ev Event) ([]byte, error) {
 
 func header(value string) string {
 	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
+}
+
+func sanitizeMessageIDHost(value string) string {
+	var b strings.Builder
+	for _, r := range value {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-':
+			b.WriteRune(r)
+		case r == '_':
+			b.WriteRune('-')
+		}
+	}
+	return strings.Trim(b.String(), ".-")
 }
 
 func randomToken(size int) string {

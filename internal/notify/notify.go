@@ -115,6 +115,7 @@ func New(o Options) *Notifier {
 	}
 	if o.Email.Enabled {
 		notifier.email = newEmailSender(o.Email)
+		notifier.email.log = log
 	}
 	return notifier
 }

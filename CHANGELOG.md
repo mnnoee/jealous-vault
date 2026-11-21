@@ -18,6 +18,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Fixed
 
 - `restore` now says "system directory" instead of "over /" when a whole-snapshot restore needs confirmation. Docs add `--yes` for targets under `/srv`, `/home`, `/var`, `/opt` and other system directories.
+- Test emails and `Message-ID` use the agent host (`host` or the machine hostname) instead of a hardcoded name; `mode = "local"` honors a configured `host`/`port`.
 
 ### Security
 
