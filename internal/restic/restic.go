@@ -39,22 +39,70 @@ type Options struct {
 	Extra    []string
 	Logger   *slog.Logger
 	Output   io.Writer
+	// ShowSensitive prints raw restic stderr in debug logs. Errors and
+	// notifications always keep the redacted form.
+	ShowSensitive bool
 }
 
 // LockRetry makes exclusive operations wait for another host instead of
 // failing immediately. The surrounding context still bounds the total wait.
 const LockRetry = "30m"
 
+// MinRestoreVersion is the oldest restic series accepted for restore, drill
+// and test-restore.
+const MinRestoreVersion = "0.18.0"
+
+// CheckRestoreVersion refuses an unsupported restic series before a restore.
+func (c *Client) CheckRestoreVersion(ctx context.Context) error {
+	out, err := c.Version(ctx)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(out)
+	if len(fields) < 2 {
+		return fmt.Errorf("cannot parse restic version %q", strings.TrimSpace(out))
+	}
+	version := strings.TrimPrefix(fields[1], "v")
+	if !versionAtLeast(version, MinRestoreVersion) {
+		return fmt.Errorf("restic %s is too old for restore; need >= %s", version, MinRestoreVersion)
+	}
+	return nil
+}
+
+func versionAtLeast(version, minimum string) bool {
+	parse := func(value string) [3]int {
+		var out [3]int
+		for i, part := range strings.SplitN(value, ".", 3) {
+			if i >= 3 {
+				break
+			}
+			n, _ := strconv.Atoi(strings.TrimFunc(part, func(r rune) bool {
+				return r < '0' || r > '9'
+			}))
+			out[i] = n
+		}
+		return out
+	}
+	a, b := parse(version), parse(minimum)
+	for i := range a {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return true
+}
+
 // Client runs restic with a fixed repository and environment.
 type Client struct {
-	binary       string
-	repository   string
-	passwordFile string
-	cacheDir     string
-	env          map[string]string
-	extra        []string
-	log          *slog.Logger
-	out          io.Writer
+	binary        string
+	repository    string
+	passwordFile  string
+	cacheDir      string
+	env           map[string]string
+	extra         []string
+	showSensitive bool
+	log           *slog.Logger
+	out           io.Writer
 }
 
 // New returns a Client. Missing optional values fall back to safe defaults.
@@ -62,6 +110,11 @@ func New(o Options) *Client {
 	binary := o.Binary
 	if binary == "" {
 		binary = "restic"
+	}
+	if !strings.Contains(binary, "/") {
+		if path, err := executil.LookPath(binary); err == nil {
+			binary = path
+		}
 	}
 	log := o.Logger
 	if log == nil {
@@ -72,14 +125,15 @@ func New(o Options) *Client {
 		out = io.Discard
 	}
 	return &Client{
-		binary:       binary,
-		repository:   o.Repository,
-		passwordFile: o.PasswordFile,
-		cacheDir:     o.CacheDir,
-		env:          o.Env,
-		extra:        append([]string(nil), o.Extra...),
-		log:          log,
-		out:          out,
+		binary:        binary,
+		repository:    o.Repository,
+		passwordFile:  o.PasswordFile,
+		cacheDir:      o.CacheDir,
+		env:           o.Env,
+		extra:         append([]string(nil), o.Extra...),
+		showSensitive: o.ShowSensitive,
+		log:           log,
+		out:           out,
 	}
 }
 
@@ -689,8 +743,13 @@ func (c *Client) commandError(command string, err error, stderr string) error {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		return errors.New("restic is not installed or not found in PATH")
 	}
-	detail := strings.TrimSpace(stderr)
-	detail = c.redact(detail)
+	raw := strings.TrimSpace(stderr)
+	detail := c.redact(raw)
+	if raw != "" && c.showSensitive {
+		c.log.Debug("restic stderr", "command", command, "stderr", raw)
+	} else if raw != "" && raw != detail {
+		c.log.Info("restic stderr redacted; set logging.show_sensitive = true to print it", "command", command)
+	}
 	if detail == "" {
 		return fmt.Errorf("restic %s: %w", command, err)
 	}

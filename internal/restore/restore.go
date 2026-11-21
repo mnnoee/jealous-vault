@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/restic"
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 // Overwrite modes accepted by restic.
@@ -195,8 +196,29 @@ func (p *Plan) Describe() string {
 	return b.String()
 }
 
+// CheckTarget rejects a restore target that another local user can modify.
+func CheckTarget(target string) error {
+	info, err := os.Lstat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return safepath.CheckParent(target)
+		}
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("restore target %s is not a directory", target)
+	}
+	if perm := info.Mode().Perm(); perm&0o022 != 0 {
+		return fmt.Errorf("restore target %s is group or world writable (%o)", target, perm)
+	}
+	return nil
+}
+
 // Execute runs the restore.
 func (p *Plan) Execute(ctx context.Context, client *restic.Client) error {
+	if err := client.CheckRestoreVersion(ctx); err != nil {
+		return err
+	}
 	return client.Restore(ctx, restic.RestoreOptions{
 		Snapshot:  p.Snapshot,
 		Target:    p.Target,

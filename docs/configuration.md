@@ -283,6 +283,14 @@ timeout = "15s"
 - `notify_on_success=false` means problems only. Deduplication suppresses identical alerts inside the window; `0` disables it.
 - Secrets belong in `0600` files; the email password comes from `password_file` or `password_env`.
 
+## `[logging]`
+
+| Key              | Default | Meaning                                                                              |
+| ---------------- | ------- | ------------------------------------------------------------------------------------ |
+| `show_sensitive` | `false` | print hook/dump output and raw restic stderr in verbose logs; default hides them     |
+
+Sensitive output is hidden by default. When it is hidden, the agent logs a notice with the byte count. Notifications and the audit journal always keep the redacted form. Enable this only when verbose logs are stored somewhere trusted.
+
 ## `[copy]`
 
 A second repository for 3-2-1:

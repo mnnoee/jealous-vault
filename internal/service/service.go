@@ -9,9 +9,10 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Timeout bounds one systemctl action.
@@ -27,7 +28,8 @@ func Run(ctx context.Context, log *slog.Logger, action, name string) error {
 	runCtx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(runCtx, "systemctl", action, name)
+	cmd := executil.Command(runCtx, "systemctl", action, name)
+	cmd.Env = executil.Environment()
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

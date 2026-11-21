@@ -12,11 +12,11 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Unit names written by Install.
@@ -427,7 +427,8 @@ func (i *Installer) uninstallOpenRC(out io.Writer) error {
 }
 
 func (i *Installer) runRC(ctx context.Context, bin string, args ...string) error {
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := executil.Command(ctx, bin, args...)
+	cmd.Env = executil.Environment()
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -495,16 +496,16 @@ func (i *Installer) initSystem() string {
 	if i.Init != "" {
 		return i.Init
 	}
-	if _, err := exec.LookPath(i.Systemctl); err == nil {
+	if _, err := executil.LookPath(i.Systemctl); err == nil {
 		return "systemd"
 	}
-	if _, err := exec.LookPath(i.RCUpdate); err == nil {
+	if _, err := executil.LookPath(i.RCUpdate); err == nil {
 		return "openrc"
 	}
-	if _, err := exec.LookPath("update-rc.d"); err == nil {
+	if _, err := executil.LookPath("update-rc.d"); err == nil {
 		return "sysvinit"
 	}
-	if _, err := exec.LookPath("runsvdir"); err == nil {
+	if _, err := executil.LookPath("runsvdir"); err == nil {
 		return "runit"
 	}
 	if info, err := os.Stat("/etc/sv"); err == nil && info.IsDir() {
@@ -513,10 +514,10 @@ func (i *Installer) initSystem() string {
 	if info, err := os.Stat(i.CronDir); err == nil && info.IsDir() {
 		return "cron"
 	}
-	if _, err := exec.LookPath("cron"); err == nil {
+	if _, err := executil.LookPath("cron"); err == nil {
 		return "cron"
 	}
-	if _, err := exec.LookPath("crond"); err == nil {
+	if _, err := executil.LookPath("crond"); err == nil {
 		return "cron"
 	}
 	return "unknown"
@@ -567,7 +568,8 @@ func (i *Installer) installBinary() error {
 }
 
 func (i *Installer) systemctl(ctx context.Context, args ...string) error {
-	cmd := exec.CommandContext(ctx, i.Systemctl, args...)
+	cmd := executil.Command(ctx, i.Systemctl, args...)
+	cmd.Env = executil.Environment()
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

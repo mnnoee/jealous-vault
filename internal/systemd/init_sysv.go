@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // installSysVInit writes an LSB init script that keeps a small tick loop in
@@ -33,10 +33,14 @@ func (i *Installer) installSysVInit(ctx context.Context, cfg *config.Config, out
 		fmt.Fprintln(out, "sysvinit script written but not enabled (--no-start)")
 		return nil
 	}
-	if _, err := exec.LookPath(i.RCUpdate); err == nil {
-		_ = exec.CommandContext(ctx, i.RCUpdate, name, "defaults").Run()
+	if _, err := executil.LookPath(i.RCUpdate); err == nil {
+		cmd := executil.Command(ctx, i.RCUpdate, name, "defaults")
+		cmd.Env = executil.Environment()
+		_ = cmd.Run()
 	}
-	if err := exec.CommandContext(ctx, path, "start").Run(); err != nil {
+	start := executil.Command(ctx, path, "start")
+	start.Env = executil.Environment()
+	if err := start.Run(); err != nil {
 		return fmt.Errorf("start %s: %w", path, err)
 	}
 	fmt.Fprintf(out, "started %s\n", name)
@@ -46,9 +50,13 @@ func (i *Installer) installSysVInit(ctx context.Context, cfg *config.Config, out
 func (i *Installer) uninstallSysVInit(out io.Writer) error {
 	name := periodicName("scheduler", i.Job)
 	path := filepath.Join("/etc/init.d", name)
-	_ = exec.Command(path, "stop").Run()
-	if _, err := exec.LookPath(i.RCUpdate); err == nil {
-		_ = exec.Command(i.RCUpdate, "-f", name, "remove").Run()
+	stop := executil.Command(context.Background(), path, "stop")
+	stop.Env = executil.Environment()
+	_ = stop.Run()
+	if _, err := executil.LookPath(i.RCUpdate); err == nil {
+		remove := executil.Command(context.Background(), i.RCUpdate, "-f", name, "remove")
+		remove.Env = executil.Environment()
+		_ = remove.Run()
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return err

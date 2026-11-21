@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 	"syscall"
+
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 // allowedEnvPrefixes lists the backend and restic variables that may be passed
@@ -76,9 +78,12 @@ func CheckSecretFile(label, path string) error {
 	if path == "" {
 		return nil
 	}
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return fmt.Errorf("%s %s: %w", label, path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("%s %s must not be a symlink", label, path)
 	}
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("%s %s is not a regular file", label, path)
@@ -88,6 +93,9 @@ func CheckSecretFile(label, path string) error {
 	}
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Uid) != os.Geteuid() {
 		return fmt.Errorf("%s %s is owned by uid %d, expected %d", label, path, stat.Uid, os.Geteuid())
+	}
+	if err := safepath.CheckParent(path); err != nil {
+		return fmt.Errorf("%s %s: %w", label, path, err)
 	}
 	return nil
 }

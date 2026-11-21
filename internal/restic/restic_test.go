@@ -408,3 +408,21 @@ func TestCommandErrorRedactsURLUserinfo(t *testing.T) {
 		t.Fatalf("repository URL was not redacted: %s", text)
 	}
 }
+
+func TestVersionAtLeast(t *testing.T) {
+	cases := []struct {
+		version string
+		minimum string
+		want    bool
+	}{
+		{"0.19.1", "0.18.0", true},
+		{"0.18.0", "0.18.0", true},
+		{"0.17.2", "0.18.0", false},
+		{"1.0.0", "0.18.0", true},
+	}
+	for _, tc := range cases {
+		if got := versionAtLeast(tc.version, tc.minimum); got != tc.want {
+			t.Errorf("versionAtLeast(%q, %q) = %v, want %v", tc.version, tc.minimum, got, tc.want)
+		}
+	}
+}

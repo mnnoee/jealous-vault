@@ -4,13 +4,14 @@
 package systemd
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // installRunit writes a supervised run script. runit restarts it if it ever
@@ -48,8 +49,10 @@ func (i *Installer) installRunit(cfg *config.Config, out io.Writer) error {
 		fmt.Fprintln(out, "runit service linked but not started (--no-start)")
 		return nil
 	}
-	if _, err := exec.LookPath("sv"); err == nil {
-		if err := exec.Command("sv", "up", name).Run(); err != nil {
+	if _, err := executil.LookPath("sv"); err == nil {
+		cmd := executil.Command(context.Background(), "sv", "up", name)
+		cmd.Env = executil.Environment()
+		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("sv up %s: %w", name, err)
 		}
 		fmt.Fprintf(out, "started %s\n", name)
@@ -59,8 +62,10 @@ func (i *Installer) installRunit(cfg *config.Config, out io.Writer) error {
 
 func (i *Installer) uninstallRunit(out io.Writer) error {
 	name := periodicName("scheduler", i.Job)
-	if _, err := exec.LookPath("sv"); err == nil {
-		_ = exec.Command("sv", "down", name).Run()
+	if _, err := executil.LookPath("sv"); err == nil {
+		cmd := executil.Command(context.Background(), "sv", "down", name)
+		cmd.Env = executil.Environment()
+		_ = cmd.Run()
 	}
 	for _, dir := range []string{runitScanDir(), runitServiceBase()} {
 		if dir == "" {

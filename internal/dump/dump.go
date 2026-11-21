@@ -17,21 +17,28 @@ import (
 
 	"github.com/mnnoee/jealous-vault/internal/config"
 	"github.com/mnnoee/jealous-vault/internal/executil"
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 // Manager collects database dumps in timestamped directories.
 type Manager struct {
-	opts config.DumpOptions
-	log  *slog.Logger
-	now  func() time.Time
+	opts          config.DumpOptions
+	log           *slog.Logger
+	now           func() time.Time
+	showSensitive bool
 }
 
 // New returns a Manager. A nil logger discards output.
 func New(opts config.DumpOptions, log *slog.Logger) *Manager {
+	return NewWithSensitive(opts, log, false)
+}
+
+// NewWithSensitive is New with an explicit sensitive-output preference.
+func NewWithSensitive(opts config.DumpOptions, log *slog.Logger, showSensitive bool) *Manager {
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	}
-	return &Manager{opts: opts, log: log, now: time.Now}
+	return &Manager{opts: opts, log: log, now: time.Now, showSensitive: showSensitive}
 }
 
 // Enabled reports whether at least one database backend is configured.
@@ -73,7 +80,7 @@ func (m *Manager) Run(ctx context.Context) (string, error) {
 func (m *Manager) dumpPostgres(ctx context.Context, dir string, p config.PostgresDump) error {
 	env := executil.Environment()
 	if p.PasswordFile != "" {
-		password, err := os.ReadFile(p.PasswordFile)
+		password, err := safepath.ReadFile(p.PasswordFile)
 		if err != nil {
 			return fmt.Errorf("postgres password: %w", err)
 		}
@@ -92,7 +99,7 @@ func (m *Manager) dumpPostgres(ctx context.Context, dir string, p config.Postgre
 			args = append(args, "--username="+p.User)
 		}
 		m.log.Info("dumping postgres", "database", database, "file", file)
-		if err := runCommand(ctx, p.Binary, args, env, m.log); err != nil {
+		if err := runCommand(ctx, p.Binary, args, env, m.log, m.showSensitive); err != nil {
 			return fmt.Errorf("pg_dump %s: %w", database, err)
 		}
 		if err := os.Chmod(file, 0o600); err != nil {
@@ -106,7 +113,7 @@ func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump
 	defaults := ""
 	env := executil.Environment()
 	if my.PasswordFile != "" {
-		password, err := os.ReadFile(my.PasswordFile)
+		password, err := safepath.ReadFile(my.PasswordFile)
 		if err != nil {
 			return fmt.Errorf("mysql password: %w", err)
 		}
@@ -155,7 +162,7 @@ func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump
 		}
 		args = append(args, database)
 		m.log.Info("dumping mysql", "database", database, "file", file)
-		if err := runCommand(ctx, my.Binary, args, env, m.log); err != nil {
+		if err := runCommand(ctx, my.Binary, args, env, m.log, m.showSensitive); err != nil {
 			return fmt.Errorf("mysqldump %s: %w", database, err)
 		}
 		if err := os.Chmod(file, 0o600); err != nil {
@@ -200,7 +207,7 @@ func (m *Manager) Prune() error {
 	return nil
 }
 
-func runCommand(ctx context.Context, binary string, args, env []string, log *slog.Logger) error {
+func runCommand(ctx context.Context, binary string, args, env []string, log *slog.Logger, showSensitive bool) error {
 	cmd := executil.Command(ctx, binary, args...)
 	cmd.Env = env
 	var output bytes.Buffer
@@ -209,10 +216,15 @@ func runCommand(ctx context.Context, binary string, args, env []string, log *slo
 	err := cmd.Run()
 	if log != nil {
 		if text := strings.TrimSpace(output.String()); text != "" {
-			if len(text) > 2048 {
-				text = text[:2048] + "..."
+			if showSensitive {
+				if len(text) > 2048 {
+					text = text[:2048] + "..."
+				}
+				log.Debug("dump output", "command", binary, "output", text, "error", err)
+			} else {
+				log.Info("dump output hidden; set logging.show_sensitive = true to print it",
+					"command", filepath.Base(binary), "bytes", len(text))
 			}
-			log.Debug("dump output", "command", binary, "output", text, "error", err)
 		} else {
 			log.Debug("dump command", "command", binary, "args", args, "error", err)
 		}

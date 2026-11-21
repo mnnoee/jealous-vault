@@ -163,14 +163,15 @@ func resticClient(cfg *config.Config, log *slog.Logger) *restic.Client {
 
 func resticClientTo(cfg *config.Config, log *slog.Logger, out io.Writer) *restic.Client {
 	return restic.New(restic.Options{
-		Binary:       cfg.ResticBinary,
-		Repository:   cfg.Repository.URL,
-		PasswordFile: cfg.Repository.PasswordFile,
-		Env:          cfg.Repository.Env,
-		CacheDir:     cfg.ResticCacheDir(),
-		Extra:        cfg.ResticExtraOptions(),
-		Logger:       log,
-		Output:       out,
+		Binary:        cfg.ResticBinary,
+		Repository:    cfg.Repository.URL,
+		PasswordFile:  cfg.Repository.PasswordFile,
+		Env:           cfg.Repository.Env,
+		CacheDir:      cfg.ResticCacheDir(),
+		Extra:         cfg.ResticExtraOptions(),
+		Logger:        log,
+		Output:        out,
+		ShowSensitive: cfg.Logging.ShowSensitive,
 	})
 }
 
@@ -1088,14 +1089,15 @@ func cmdRepoPasswd(ctx context.Context, args []string) error {
 		verifyEnv[key] = value
 	}
 	verify := restic.New(restic.Options{
-		Binary:       cfg.ResticBinary,
-		Repository:   cfg.Repository.URL,
-		PasswordFile: *newPassword,
-		Env:          verifyEnv,
-		CacheDir:     cfg.ResticCacheDir(),
-		Extra:        cfg.ResticExtraOptions(),
-		Logger:       log,
-		Output:       io.Discard,
+		Binary:        cfg.ResticBinary,
+		Repository:    cfg.Repository.URL,
+		PasswordFile:  *newPassword,
+		Env:           verifyEnv,
+		CacheDir:      cfg.ResticCacheDir(),
+		Extra:         cfg.ResticExtraOptions(),
+		Logger:        log,
+		Output:        io.Discard,
+		ShowSensitive: cfg.Logging.ShowSensitive,
 	})
 	if err := verify.CheckAccess(ctx); err != nil {
 		return fmt.Errorf("new key was added, but verification failed; remove it with repo key list: %w", err)
@@ -1456,6 +1458,9 @@ func cmdRestore(ctx context.Context, args []string) error {
 	if plan.Dangerous() && !*yes {
 		return fmt.Errorf("%w, pass --yes", restore.ErrDangerous)
 	}
+	if err := restore.CheckTarget(plan.Target); err != nil {
+		return err
+	}
 	fmt.Println("restoring")
 
 	if err := executeRestore(ctx, cfg, plan, log, "restore", preHooks, postHooks, serviceName); err != nil {
@@ -1491,7 +1496,7 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 		} else {
 			env["JM_STATUS"] = "failed"
 		}
-		hookErr := hooks.Run(ctx, log, event+"-post", postHooks, env)
+		hookErr := hooks.RunWith(ctx, log, event+"-post", postHooks, env, cfg.Logging.ShowSensitive)
 		var startErr error
 		if stopped {
 			startErr = service.Run(context.Background(), log, "start", serviceName)
@@ -1507,7 +1512,7 @@ func executeRestore(ctx context.Context, cfg *config.Config, plan *restore.Plan,
 		})
 		return finalErr
 	}
-	if err := hooks.Run(ctx, log, event+"-pre", preHooks, env); err != nil {
+	if err := hooks.RunWith(ctx, log, event+"-pre", preHooks, env, cfg.Logging.ShowSensitive); err != nil {
 		return finish(err)
 	}
 
@@ -1734,7 +1739,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 			"JM_SNAPSHOT":      snapshot.ID,
 			"JM_VERIFY_TARGET": target,
 		}
-		if err := hooks.Run(ctx, log, "verify", []string{postHook}, env); err != nil {
+		if err := hooks.RunWith(ctx, log, "verify", []string{postHook}, env, cfg.Logging.ShowSensitive); err != nil {
 			return finish(state.StatusFailed, err)
 		}
 	}

@@ -54,11 +54,6 @@ func SanitizeEnv(env []string) []string {
 
 // Command is exec.CommandContext with a process group kill and a bounded wait.
 func Command(ctx context.Context, name string, args ...string) *exec.Cmd {
-	if !strings.Contains(name, "/") {
-		if path, err := LookPath(name); err == nil {
-			name = path
-		}
-	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error {

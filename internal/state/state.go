@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 // CurrentVersion is the state and history format written by this build.
@@ -79,7 +81,7 @@ const (
 // torn by a crash is moved aside and treated as empty: a backup agent must
 // keep running even when its tiny bookkeeping file is damaged.
 func (s Store) Load() (*State, error) {
-	data, err := os.ReadFile(s.Path)
+	data, err := safepath.ReadFile(s.Path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &State{}, nil
@@ -277,7 +279,7 @@ func (s Store) History(limit int) ([]Run, error) {
 // trailing newline is either a valid record written just before a crash or a
 // torn one; the former gets a newline, the latter is cut off.
 func repairTail(path string) error {
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -323,6 +325,9 @@ func checkRegular(f *os.File, path string) error {
 }
 
 func openAppend(path string) (*os.File, error) {
+	if err := safepath.CheckParent(path); err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
@@ -335,6 +340,9 @@ func openAppend(path string) (*os.File, error) {
 }
 
 func openReadWrite(path string) (*os.File, error) {
+	if err := safepath.CheckParent(path); err != nil {
+		return nil, err
+	}
 	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, err
@@ -347,7 +355,7 @@ func openReadWrite(path string) (*os.File, error) {
 }
 
 func (s Store) rotateHistory(path string) error {
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		return err
 	}

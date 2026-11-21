@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 // Write creates output with mode 0600. It refuses to overwrite unless force is
@@ -89,6 +90,9 @@ func Write(cfg *config.Config, output string, force bool, version string) error 
 }
 
 func openSecret(path string, force bool) (*os.File, error) {
+	if err := safepath.CheckParent(path); err != nil {
+		return nil, err
+	}
 	flags := os.O_WRONLY | os.O_CREATE | syscall.O_NOFOLLOW
 	if force {
 		info, err := os.Lstat(path)
@@ -137,7 +141,7 @@ func openSecret(path string, force bool) (*os.File, error) {
 }
 
 func readSecret(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +152,7 @@ func readOptional(path string) (string, error) {
 	if path == "" {
 		return "", nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", nil

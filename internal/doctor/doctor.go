@@ -10,12 +10,12 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/state"
@@ -76,13 +76,14 @@ func Run(ctx context.Context, cfg *config.Config, opts Options) Report {
 	checkAudit(cfg, add)
 
 	client := restic.New(restic.Options{
-		Binary:       cfg.ResticBinary,
-		Repository:   cfg.Repository.URL,
-		PasswordFile: cfg.Repository.PasswordFile,
-		Env:          cfg.Repository.Env,
-		CacheDir:     cfg.ResticCacheDir(),
-		Extra:        cfg.ResticExtraOptions(),
-		Logger:       opts.Logger,
+		Binary:        cfg.ResticBinary,
+		Repository:    cfg.Repository.URL,
+		PasswordFile:  cfg.Repository.PasswordFile,
+		Env:           cfg.Repository.Env,
+		CacheDir:      cfg.ResticCacheDir(),
+		Extra:         cfg.ResticExtraOptions(),
+		Logger:        opts.Logger,
+		ShowSensitive: cfg.Logging.ShowSensitive,
 	})
 
 	resticAvailable := checkRestic(ctx, cfg, client, add)
@@ -302,7 +303,7 @@ func checkDumps(cfg *config.Config, add func(string, Level, string)) {
 }
 
 func checkDumpBackend(name, binary, password string, add func(string, Level, string)) {
-	if _, err := exec.LookPath(binary); err != nil {
+	if _, err := executil.LookPath(binary); err != nil {
 		add("dump "+name, LevelFail, binary+" not found in PATH")
 	}
 	if password != "" {
@@ -342,7 +343,7 @@ func checkLastVerify(ctx context.Context, cfg *config.Config, client *restic.Cli
 }
 
 func checkRestic(ctx context.Context, cfg *config.Config, client *restic.Client, add func(string, Level, string)) bool {
-	if _, err := exec.LookPath(cfg.ResticBinary); err != nil {
+	if _, err := executil.LookPath(cfg.ResticBinary); err != nil {
 		add("restic", LevelFail, fmt.Sprintf("%s not found in PATH", cfg.ResticBinary))
 		return false
 	}
@@ -480,8 +481,8 @@ func checkSystemd(ctx context.Context, systemctl string, verifyEnabled, drillEna
 	if systemctl == "" {
 		systemctl = "systemctl"
 	}
-	if _, err := exec.LookPath(systemctl); err != nil {
-		if _, rcErr := exec.LookPath("rc-update"); rcErr == nil {
+	if _, err := executil.LookPath(systemctl); err != nil {
+		if _, rcErr := executil.LookPath("rc-update"); rcErr == nil {
 			checkOpenRC(ctx, job, add)
 			return
 		}
@@ -535,7 +536,8 @@ func checkOpenRC(ctx context.Context, job string, add func(string, Level, string
 		add("init", LevelWarn, "periodic jobs missing: "+strings.Join(missing, ", "))
 		return
 	}
-	cmd := exec.CommandContext(ctx, "rc-service", "crond", "status")
+	cmd := executil.Command(ctx, "rc-service", "crond", "status")
+	cmd.Env = executil.Environment()
 	if err := cmd.Run(); err != nil {
 		add("init", LevelWarn, "OpenRC periodic jobs installed but crond is not running")
 		return
@@ -544,7 +546,8 @@ func checkOpenRC(ctx context.Context, job string, add func(string, Level, string
 }
 
 func systemctlRun(ctx context.Context, systemctl string, args ...string) error {
-	cmd := exec.CommandContext(ctx, systemctl, args...)
+	cmd := executil.Command(ctx, systemctl, args...)
+	cmd.Env = executil.Environment()
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard
 	return cmd.Run()
@@ -571,7 +574,7 @@ func checkS3Credentials(cfg *config.Config, add func(string, Level, string)) {
 func checkProxmox(ctx context.Context, cfg *config.Config, add func(string, Level, string)) {
 	var missing []string
 	for _, bin := range []string{"vzdump", "qm", "pct"} {
-		if _, err := exec.LookPath(bin); err != nil {
+		if _, err := executil.LookPath(bin); err != nil {
 			missing = append(missing, bin)
 		}
 	}
@@ -591,7 +594,8 @@ func checkProxmox(ctx context.Context, cfg *config.Config, add func(string, Leve
 		add("proxmox", LevelOK, "commands and dump directory are present")
 	}
 
-	cmd := exec.CommandContext(ctx, "pvesm", "status")
+	cmd := executil.Command(ctx, "pvesm", "status")
+	cmd.Env = executil.Environment()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		add("proxmox storage", LevelWarn, strings.TrimSpace(string(out)))
 	} else {

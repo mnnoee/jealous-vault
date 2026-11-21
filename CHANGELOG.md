@@ -28,6 +28,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - Webhooks and pings do not follow redirects.
 - SFTP fails closed when `known_hosts` is missing; `sftp_accept_new_host_key = true` is required for trust-on-first-use.
 - The MySQL password lives in a private temporary directory; dump directories, schedules and unit paths reject `..` and control characters.
+- Secret files reject symlinks and parent directories writable by other users; restore requires restic `>= 0.18`; audit attribution prefers `/proc/self/loginuid`.
+- Sensitive hook/dump/restic output is hidden by default with a notice; `[logging] show_sensitive = true` prints it in verbose logs.
+- Manual restore rejects group/world-writable targets. Webhooks may use `http://` behind a TLS-terminating reverse proxy; redirects are not followed.
 
 ## [0.1.1] - 2026-11-20
 

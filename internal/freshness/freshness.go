@@ -8,10 +8,10 @@ package freshness
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/mnnoee/jealous-vault/internal/executil"
 	"github.com/mnnoee/jealous-vault/internal/state"
 )
 
@@ -60,7 +60,7 @@ func Check(ctx context.Context, st *state.State, o Options) Result {
 	result := Result{MaxAge: o.MaxAge, LastSuccess: st.LastSuccess}
 
 	if o.RespectBackupTimer {
-		if _, err := exec.LookPath(o.Systemctl); err == nil {
+		if _, err := executil.LookPath(o.Systemctl); err == nil {
 			if err := run(ctx, o.Systemctl, "is-enabled", o.Unit); err != nil {
 				result.Kind = KindTimerDisabled
 				result.Message = fmt.Sprintf("%s is disabled or masked", o.Unit)
@@ -95,7 +95,8 @@ func Check(ctx context.Context, st *state.State, o Options) Result {
 }
 
 func run(ctx context.Context, systemctl string, args ...string) error {
-	cmd := exec.CommandContext(ctx, systemctl, args...)
+	cmd := executil.Command(ctx, systemctl, args...)
+	cmd.Env = executil.Environment()
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		text := strings.TrimSpace(string(out))

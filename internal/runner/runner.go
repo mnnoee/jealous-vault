@@ -41,14 +41,15 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 	return &Runner{
 		cfg: cfg,
 		restic: restic.New(restic.Options{
-			Binary:       cfg.ResticBinary,
-			Repository:   cfg.Repository.URL,
-			PasswordFile: cfg.Repository.PasswordFile,
-			Env:          cfg.Repository.Env,
-			CacheDir:     cfg.ResticCacheDir(),
-			Extra:        cfg.ResticExtraOptions(),
-			Logger:       log,
-			Output:       out,
+			Binary:        cfg.ResticBinary,
+			Repository:    cfg.Repository.URL,
+			PasswordFile:  cfg.Repository.PasswordFile,
+			Env:           cfg.Repository.Env,
+			CacheDir:      cfg.ResticCacheDir(),
+			Extra:         cfg.ResticExtraOptions(),
+			Logger:        log,
+			Output:        out,
+			ShowSensitive: cfg.Logging.ShowSensitive,
 		}),
 		notify: notify.New(notify.Options{
 			Webhooks:         cfg.Notify.Webhooks,
@@ -66,7 +67,7 @@ func New(cfg *config.Config, log *slog.Logger, out io.Writer) *Runner {
 			Logger:           log,
 		}),
 		store: state.Store{Path: cfg.StateFile, HistoryPath: cfg.HistoryFile},
-		dumps: dump.New(cfg.Backup.Dumps, log),
+		dumps: dump.NewWithSensitive(cfg.Backup.Dumps, log, cfg.Logging.ShowSensitive),
 		log:   log,
 		now:   time.Now,
 	}
@@ -82,7 +83,7 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 	}
 	var warnings []string
 
-	preErr := hooks.Run(ctx, r.log, "backup-pre", r.cfg.Backup.PreHooks, r.hookEnv(&run, "pre", "running"))
+	preErr := hooks.RunWith(ctx, r.log, "backup-pre", r.cfg.Backup.PreHooks, r.hookEnv(&run, "pre", "running"), r.cfg.Logging.ShowSensitive)
 	if preErr != nil {
 		warnings = append(warnings, preErr.Error())
 	}
@@ -134,7 +135,7 @@ func (r *Runner) Backup(ctx context.Context) (state.Run, error) {
 	if run.Status == state.StatusSuccess {
 		status = "success"
 	}
-	if err := hooks.Run(ctx, r.log, "backup-post", r.cfg.Backup.PostHooks, r.hookEnv(&run, "post", status)); err != nil {
+	if err := hooks.RunWith(ctx, r.log, "backup-post", r.cfg.Backup.PostHooks, r.hookEnv(&run, "post", status), r.cfg.Logging.ShowSensitive); err != nil {
 		warnings = append(warnings, err.Error())
 	}
 

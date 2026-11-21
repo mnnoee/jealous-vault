@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 const (
@@ -56,6 +57,7 @@ type Config struct {
 	Check        Check     `toml:"check"`
 	Restore      Restore   `toml:"restore"`
 	Notify       Notify    `toml:"notify"`
+	Logging      Logging   `toml:"logging"`
 
 	Path string `toml:"-"`
 
@@ -152,6 +154,14 @@ type Retention struct {
 	KeepWithin  string   `toml:"keep_within"`
 	KeepTag     []string `toml:"keep_tag"`
 	Prune       bool     `toml:"prune"`
+}
+
+// Logging controls sensitive diagnostic output.
+type Logging struct {
+	// ShowSensitive prints hook/dump output and raw restic stderr in verbose
+	// logs. It is off by default; notifications and the audit journal always
+	// stay redacted.
+	ShowSensitive bool `toml:"show_sensitive"`
 }
 
 // Schedule drives the generated systemd timer.
@@ -353,7 +363,7 @@ func Default() *Config {
 
 // Load reads path, applies defaults and validates the result.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -579,7 +589,7 @@ func (c *Config) finish() error {
 			if err := CheckSecretFile("notify.email.password_file", c.Notify.Email.PasswordFile); err != nil {
 				return err
 			}
-			data, err := os.ReadFile(c.Notify.Email.PasswordFile)
+			data, err := safepath.ReadFile(c.Notify.Email.PasswordFile)
 			if err != nil {
 				return fmt.Errorf("notify.email.password_file: %w", err)
 			}
@@ -1173,7 +1183,7 @@ func LoadEnvFile(path string) (map[string]string, error) {
 	if err := CheckSecretFile("env file", path); err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := safepath.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}

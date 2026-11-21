@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 )
 
 const (
@@ -136,7 +138,7 @@ func cooldownFor(event string, short, long time.Duration) time.Duration {
 }
 
 func (l *limiter) load() (alertDisk, error) {
-	data, err := os.ReadFile(l.path)
+	data, err := safepath.ReadFile(l.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return alertDisk{Version: 1, Records: map[string]alertRecord{}}, nil

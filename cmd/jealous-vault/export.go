@@ -53,10 +53,8 @@ func cmdExportResticEnv(args []string) error {
 	export := buildResticExport(cfg)
 	if *asJSON {
 		if redacted := cfg.RedactedRepository(); export.Repository != redacted {
-			export.Repository = redacted
-			export.Shell = ""
-			export.Warning = "repository URL contains credentials; the shell export is omitted, use the shell form of this command"
-			fmt.Fprintln(os.Stderr, "jealous-vault: repository URL contains credentials; the JSON export is redacted")
+			export.Warning = "repository URL contains credentials; treat this export as a secret"
+			fmt.Fprintln(os.Stderr, "jealous-vault: repository URL contains credentials; the export is sensitive")
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")

@@ -21,8 +21,13 @@ import (
 const DefaultTimeout = 10 * time.Minute
 
 // Run executes commands through /bin/sh in order and stops at the first
-// failure. Output is logged, never returned as an error message.
+// failure. Sensitive output is hidden by default.
 func Run(ctx context.Context, log *slog.Logger, phase string, commands []string, env map[string]string) error {
+	return RunWith(ctx, log, phase, commands, env, false)
+}
+
+// RunWith is Run with an explicit sensitive-output preference.
+func RunWith(ctx context.Context, log *slog.Logger, phase string, commands []string, env map[string]string, showSensitive bool) error {
 	if len(commands) == 0 {
 		return nil
 	}
@@ -53,7 +58,11 @@ func Run(ctx context.Context, log *slog.Logger, phase string, commands []string,
 		cancel()
 
 		if text := strings.TrimSpace(output.String()); text != "" {
-			log.Debug("hook output", "phase", phase, "output", truncate(text, 4096))
+			if showSensitive {
+				log.Debug("hook output", "phase", phase, "output", truncate(text, 4096))
+			} else {
+				log.Info("hook output hidden; set logging.show_sensitive = true to print it", "phase", phase, "bytes", len(text))
+			}
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {

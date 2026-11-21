@@ -8,12 +8,13 @@ package trigger
 import (
 	"context"
 	"os"
-	"os/exec"
 	"os/user"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Info describes how the current process was started.
@@ -284,7 +285,9 @@ func systemdTrigger(unit string) string {
 func systemctlValue(timeout time.Duration, args ...string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "systemctl", args...).Output()
+	cmd := executil.Command(ctx, "systemctl", args...)
+	cmd.Env = executil.Environment()
+	out, err := cmd.Output()
 	if err != nil {
 		return ""
 	}

@@ -11,12 +11,13 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Options configures the Proxmox commands.
@@ -305,7 +306,8 @@ func sortByModTime(paths []string) {
 
 func (m *Manager) run(ctx context.Context, bin string, args ...string) (string, error) {
 	start := time.Now()
-	cmd := exec.CommandContext(ctx, bin, args...)
+	cmd := executil.Command(ctx, bin, args...)
+	cmd.Env = executil.Environment()
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output

@@ -14,9 +14,11 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/mnnoee/jealous-vault/internal/safepath"
 	"github.com/mnnoee/jealous-vault/internal/trigger"
 )
 
@@ -66,6 +68,12 @@ func (l Logger) Write(e Entry) error {
 	if e.UID == 0 {
 		e.UID = os.Getuid()
 	}
+	if uid, ok := loginUID(); ok {
+		e.UID = uid
+		if name, err := user.LookupId(strconv.Itoa(uid)); err == nil && name.Username != "" {
+			e.User = name.Username
+		}
+	}
 	if e.Result == "" {
 		e.Result = "success"
 	}
@@ -91,6 +99,9 @@ func (l Logger) Write(e Entry) error {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(l.Path), 0o750); err != nil {
+		return err
+	}
+	if err := safepath.CheckParent(l.Path); err != nil {
 		return err
 	}
 	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
@@ -133,6 +144,20 @@ func (l Logger) Record(e Entry) {
 		}
 		fmt.Fprintf(os.Stderr, "jealous-vault: cannot write the audit journal: %v\n", err)
 	}
+}
+
+// loginUID returns the kernel loginuid when it is set. It is a stronger
+// identity than SUDO_USER or SSH_CONNECTION from the environment.
+func loginUID() (int, bool) {
+	data, err := os.ReadFile("/proc/self/loginuid")
+	if err != nil {
+		return 0, false
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || n < 0 || n == 4294967295 {
+		return 0, false
+	}
+	return n, true
 }
 
 // currentUser avoids os/user in exotic environments where it fails.
