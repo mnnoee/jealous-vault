@@ -19,6 +19,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 - `restore` now says "system directory" instead of "over /" when a whole-snapshot restore needs confirmation. Docs add `--yes` for targets under `/srv`, `/home`, `/var`, `/opt` and other system directories.
 
+### Security
+
+- Restore and drill targets are resolved through symlinks before the dangerous-target check; `--include` no longer bypasses `--yes`, and `restore-vm` has the same confirmation gate.
+- `recovery-kit --force`, state/history and audit files use `O_NOFOLLOW` and reject symlinks.
+- Repository URLs are passed to `restic copy` through the environment, and restic stderr is redacted.
+- Hook commands and hook/drill/dump output no longer reach alerts or the audit journal; child processes run with a sanitized environment and a killable process group.
+- Webhooks and pings do not follow redirects.
+- SFTP fails closed when `known_hosts` is missing; `sftp_accept_new_host_key = true` is required for trust-on-first-use.
+- The MySQL password lives in a private temporary directory; dump directories, schedules and unit paths reject `..` and control characters.
+
 ## [0.1.1] - 2026-11-20
 
 ### Added

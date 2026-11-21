@@ -935,3 +935,50 @@ func TestResticCacheDir(t *testing.T) {
 		t.Fatalf("process cache dir was overridden: %q", got)
 	}
 }
+
+func TestRejectControl(t *testing.T) {
+	if err := rejectControl("x", "a\nb"); err == nil {
+		t.Fatal("expected a newline rejection")
+	}
+	if err := rejectControl("x", "ok"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRejectDotDot(t *testing.T) {
+	for _, value := range []string{"/srv/../../etc", "../x"} {
+		if err := rejectDotDot("x", value); err == nil {
+			t.Errorf("expected %q to be rejected", value)
+		}
+	}
+	if err := rejectDotDot("x", "/srv/backup"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateBinary(t *testing.T) {
+	for _, value := range []string{"../restic", "bin/restic", "restic --flag"} {
+		if err := validateBinary("restic_binary", value); err == nil {
+			t.Errorf("expected %q to be rejected", value)
+		}
+	}
+	for _, value := range []string{"restic", "/usr/bin/restic"} {
+		if err := validateBinary("restic_binary", value); err != nil {
+			t.Errorf("unexpected rejection for %q: %v", value, err)
+		}
+	}
+}
+
+func TestValidateEmailLocalAuth(t *testing.T) {
+	err := validateEmail(Email{
+		Mode:     "local",
+		From:     "backup@example.com",
+		To:       []string{"ops@example.com"},
+		Port:     25,
+		Security: "starttls",
+		Username: "user",
+	}, "password")
+	if err == nil {
+		t.Fatal("expected local mode with username to be rejected")
+	}
+}

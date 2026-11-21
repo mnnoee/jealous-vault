@@ -35,6 +35,9 @@ func validateEmail(email Email, password string) error {
 	if email.Mode == "smtp" && email.Host == "" {
 		return errors.New("notify.email.host is required for smtp mode")
 	}
+	if email.Mode == "local" && email.Username != "" {
+		return errors.New("notify.email.username is not supported with mode local")
+	}
 	if email.Port < 1 || email.Port > 65535 {
 		return fmt.Errorf("notify.email.port %d is out of range", email.Port)
 	}

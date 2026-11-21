@@ -67,7 +67,8 @@ cache_dir = "/var/cache/jealous-vault"
 | `env_file`         | KEY=VALUE for S3/cloud, `0600`                |
 | `cache_dir`        | restic index cache                            |
 | `sftp_key_file`    | private SFTP key, `0600`                      |
-| `sftp_known_hosts` | known_hosts                                   |
+| `sftp_known_hosts` | known_hosts; required unless the next flag is true |
+| `sftp_accept_new_host_key` | trust an unknown host key on first use (default `false`) |
 | `sftp_config`      | private ssh_config; generated automatically   |
 
 Example S3 env file:

@@ -4,6 +4,8 @@
 package restore
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -51,8 +53,16 @@ func TestDangerousWithIncludes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if plan.Dangerous() {
-		t.Fatal("a restore limited to paths is not the whole-snapshot case")
+	if !plan.Dangerous() {
+		t.Fatal("includes must not bypass the target check")
+	}
+
+	safe, err := New("latest", "/tmp/restore", []string{"/etc"}, OverwriteNever)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if safe.Dangerous() {
+		t.Fatal("a non-system target with includes should not be dangerous")
 	}
 }
 
@@ -115,5 +125,48 @@ func TestTestTarget(t *testing.T) {
 	want := "/srv/test/20260203-040506"
 	if got != want {
 		t.Fatalf("target = %q, want %q", got, want)
+	}
+}
+
+func TestResolveTargetFollowsSymlink(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink("/etc", link); err != nil {
+		t.Fatal(err)
+	}
+	planned, err := New("latest", link, nil, OverwriteNever)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks("/etc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.Target != want {
+		t.Fatalf("target = %q, want %q", planned.Target, want)
+	}
+	if !planned.Dangerous() {
+		t.Fatal("a symlinked system target must be dangerous")
+	}
+}
+
+func TestPrepareScratch(t *testing.T) {
+	base := t.TempDir()
+	target := filepath.Join(base, "run")
+	if err := PrepareScratch(target, true); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("mode = %o, want 700", info.Mode().Perm())
+	}
+	if err := PrepareScratch(target, true); err == nil {
+		t.Fatal("expected an EEXIST error for an automatic target")
+	}
+	if err := PrepareScratch("/", true); err == nil {
+		t.Fatal("expected / to be rejected")
 	}
 }

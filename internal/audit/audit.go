@@ -14,6 +14,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"syscall"
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/trigger"
@@ -92,11 +93,21 @@ func (l Logger) Write(e Entry) error {
 	if err := os.MkdirAll(filepath.Dir(l.Path), 0o750); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(l.Path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", l.Path)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Geteuid() {
+		return fmt.Errorf("%s is owned by uid %d, expected %d", l.Path, st.Uid, os.Geteuid())
+	}
 	if err := f.Chmod(0o600); err != nil {
 		return err
 	}

@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/restic"
@@ -57,13 +59,51 @@ func New(snapshot, target string, includes []string, overwrite string) (*Plan, e
 		if !strings.HasPrefix(p, "/") {
 			return nil, fmt.Errorf("include path %q must be absolute inside the snapshot", p)
 		}
+		if filepath.Clean(p) == "/" {
+			return nil, fmt.Errorf("include path %q is the whole snapshot; use a full restore", p)
+		}
+	}
+	resolved, err := ResolveTarget(filepath.Clean(target))
+	if err != nil {
+		return nil, err
 	}
 	return &Plan{
 		Snapshot:  snapshot,
-		Target:    filepath.Clean(target),
+		Target:    resolved,
 		Includes:  append([]string(nil), includes...),
 		Overwrite: overwrite,
 	}, nil
+}
+
+// ResolveTarget resolves symlinks in the longest existing prefix of target,
+// so a symlinked target cannot bypass the Dangerous check. The leaf may not
+// exist yet; its future path is appended to the resolved prefix.
+func ResolveTarget(target string) (string, error) {
+	clean := filepath.Clean(target)
+	if !filepath.IsAbs(clean) {
+		return "", fmt.Errorf("target %q must be an absolute path", target)
+	}
+	existing := clean
+	rest := ""
+	for {
+		if _, err := os.Lstat(existing); err == nil {
+			break
+		}
+		parent := filepath.Dir(existing)
+		if parent == existing {
+			break
+		}
+		rest = filepath.Join(filepath.Base(existing), rest)
+		existing = parent
+	}
+	resolved, err := filepath.EvalSymlinks(existing)
+	if err != nil {
+		return "", fmt.Errorf("resolve target %q: %w", target, err)
+	}
+	if rest == "" {
+		return filepath.Clean(resolved), nil
+	}
+	return filepath.Join(resolved, rest), nil
 }
 
 // systemDirs are the top-level directories whose contents make up a running
@@ -80,11 +120,8 @@ var systemDirs = map[string]bool{
 // are directories owned by the agent where an automatic test restore is
 // expected, for example /var/lib/jealous-vault/verify.
 func (p *Plan) Dangerous(safeRoots ...string) bool {
-	if p.Target == "/" && len(p.Includes) == 0 {
+	if p.Target == "/" {
 		return true
-	}
-	if len(p.Includes) > 0 {
-		return false
 	}
 	for _, root := range safeRoots {
 		if root == "" {
@@ -97,6 +134,49 @@ func (p *Plan) Dangerous(safeRoots ...string) bool {
 	}
 	first, _, _ := strings.Cut(strings.TrimPrefix(p.Target, string(filepath.Separator)), string(filepath.Separator))
 	return systemDirs[first]
+}
+
+// PrepareScratch creates or validates a restore target. Automatic targets must
+// be newly created and owner-only; an explicit target is tightened to 0700 and
+// rejected if it belongs to another user or is group/other accessible.
+func PrepareScratch(target string, auto bool) error {
+	clean := filepath.Clean(target)
+	if clean == string(filepath.Separator) {
+		return errors.New("refusing to use / as a scratch target")
+	}
+	first, _, _ := strings.Cut(strings.TrimPrefix(clean, string(filepath.Separator)), string(filepath.Separator))
+	if systemDirs[first] && filepath.Dir(clean) == string(filepath.Separator) {
+		return fmt.Errorf("refusing to change permissions of system directory %s", clean)
+	}
+	if auto {
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		if err := os.Mkdir(target, 0o700); err != nil {
+			return fmt.Errorf("create scratch target %s: %w", target, err)
+		}
+	} else {
+		if err := os.MkdirAll(target, 0o700); err != nil {
+			return err
+		}
+		if err := os.Chmod(target, 0o700); err != nil {
+			return err
+		}
+	}
+	info, err := os.Lstat(target)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("scratch target %s is not a directory", target)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		return fmt.Errorf("scratch target %s must not be group or world accessible (%o)", target, perm)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Geteuid() {
+		return fmt.Errorf("scratch target %s is owned by uid %d, expected %d", target, st.Uid, os.Geteuid())
+	}
+	return nil
 }
 
 // Describe renders a short human readable summary.

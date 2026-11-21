@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -210,7 +211,7 @@ func (s Store) Append(run Run) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	f, err := openAppend(path)
 	if err != nil {
 		return err
 	}
@@ -289,7 +290,7 @@ func repairTail(path string) error {
 	line := bytes.TrimSpace(data[bytes.LastIndexByte(data, '\n')+1:])
 	var run Run
 	if json.Unmarshal(line, &run) == nil {
-		f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o600)
+		f, err := openAppend(path)
 		if err != nil {
 			return err
 		}
@@ -299,7 +300,50 @@ func repairTail(path string) error {
 		}
 		return f.Sync()
 	}
-	return os.Truncate(path, int64(bytes.LastIndexByte(data, '\n')+1))
+	f, err := openReadWrite(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Truncate(int64(bytes.LastIndexByte(data, '\n') + 1))
+}
+
+func checkRegular(f *os.File, path string) error {
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Geteuid() {
+		return fmt.Errorf("%s is owned by uid %d, expected %d", path, st.Uid, os.Geteuid())
+	}
+	return nil
+}
+
+func openAppend(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRegular(f, path); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+func openReadWrite(path string) (*os.File, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkRegular(f, path); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func (s Store) rotateHistory(path string) error {

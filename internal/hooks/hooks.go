@@ -10,11 +10,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // DefaultTimeout bounds one hook, so a broken command cannot hang the agent.
@@ -40,10 +40,10 @@ func Run(ctx context.Context, log *slog.Logger, phase string, commands []string,
 		extra = append(extra, k+"="+env[k])
 	}
 
-	for _, command := range commands {
+	for i, command := range commands {
 		hookCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
-		cmd := exec.CommandContext(hookCtx, "/bin/sh", "-c", command)
-		cmd.Env = append(os.Environ(), extra...)
+		cmd := executil.Command(hookCtx, "/bin/sh", "-c", command)
+		cmd.Env = append(executil.Environment(), extra...)
 
 		var output bytes.Buffer
 		cmd.Stdout = &output
@@ -53,13 +53,13 @@ func Run(ctx context.Context, log *slog.Logger, phase string, commands []string,
 		cancel()
 
 		if text := strings.TrimSpace(output.String()); text != "" {
-			log.Info("hook output", "phase", phase, "output", truncate(text, 4096))
+			log.Debug("hook output", "phase", phase, "output", truncate(text, 4096))
 		}
 		if err != nil {
 			if ctxErr := ctx.Err(); ctxErr != nil {
 				return ctxErr
 			}
-			return fmt.Errorf("%s hook %q: %w", phase, command, err)
+			return fmt.Errorf("%s hook #%d: %w", phase, i+1, err)
 		}
 	}
 	return nil

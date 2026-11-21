@@ -68,3 +68,13 @@ func TestRunWithoutCommands(t *testing.T) {
 		t.Fatalf("empty hook list returned an error: %v", err)
 	}
 }
+
+func TestRunErrorDoesNotLeakCommand(t *testing.T) {
+	err := Run(context.Background(), nil, "backup-pre", []string{"exit 7"}, nil)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if strings.Contains(err.Error(), "exit 7") {
+		t.Fatalf("hook command leaked into the error: %v", err)
+	}
+}

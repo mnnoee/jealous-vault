@@ -265,3 +265,28 @@ func TestHistoryRejectsMalformedMiddle(t *testing.T) {
 		t.Fatal("malformed middle record must be reported")
 	}
 }
+
+func TestAppendRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "history.jsonl")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	store := Store{HistoryPath: link}
+	now := time.Now()
+	err := store.Append(Run{Kind: KindBackup, StartedAt: now, FinishedAt: now, Status: StatusSuccess})
+	if err == nil {
+		t.Fatal("expected a symlink error")
+	}
+	data, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("symlink target was modified: %q", data)
+	}
+}

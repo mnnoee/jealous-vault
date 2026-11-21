@@ -190,3 +190,24 @@ func TestFreshnessPing(t *testing.T) {
 		t.Fatalf("requests = %+v", got)
 	}
 }
+
+func TestWebhookDoesNotFollowRedirect(t *testing.T) {
+	var targetHits int
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		targetHits++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+
+	n := New(Options{Webhooks: []string{redirect.URL}, Timeout: time.Second})
+	ev := Event{Event: "backup", Status: "failed", Host: "node-1", Time: time.Now()}
+	_ = n.Send(context.Background(), ev)
+	if targetHits != 0 {
+		t.Fatalf("followed webhook redirect: %d requests", targetHits)
+	}
+}

@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/mnnoee/jealous-vault/internal/audit"
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 	"github.com/mnnoee/jealous-vault/internal/notify"
 	"github.com/mnnoee/jealous-vault/internal/restic"
 	"github.com/mnnoee/jealous-vault/internal/restore"
@@ -176,20 +176,6 @@ func cmdDrill(ctx context.Context, args []string) error {
 		report.step("size", state.StatusSkipped, reason, "", now)
 		return finish(state.StatusSkipped, errors.New(reason))
 	}
-	if err := os.MkdirAll(target, 0o750); err != nil {
-		return finish(state.StatusFailed, err)
-	}
-	free, err := freeBytes(target)
-	if err != nil {
-		return finish(state.StatusFailed, err)
-	}
-	if reason := verifySkipReason(0, free, 0, cfg.DrillMinFree); reason != "" {
-		report.step("space", state.StatusSkipped, reason, "", now)
-		if autoTarget {
-			_ = os.RemoveAll(target)
-		}
-		return finish(state.StatusSkipped, errors.New(reason))
-	}
 
 	includes := []string(nil)
 	if level == "db" {
@@ -205,6 +191,28 @@ func cmdDrill(ctx context.Context, args []string) error {
 	safeRoot := filepath.Join(filepath.Dir(cfg.StateFile), "drill")
 	if plan.Dangerous(safeRoot) && !*yes {
 		return finish(state.StatusFailed, fmt.Errorf("%w, pass --yes", restore.ErrDangerous))
+	}
+	target = plan.Target
+	report.Target = target
+	if err := restore.PrepareScratch(target, autoTarget); err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	cleaned := false
+	if autoTarget && !keepTarget {
+		defer func() {
+			if !cleaned {
+				_ = os.RemoveAll(target)
+			}
+		}()
+	}
+
+	free, err := freeBytes(target)
+	if err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	if reason := verifySkipReason(0, free, 0, cfg.DrillMinFree); reason != "" {
+		report.step("space", state.StatusSkipped, reason, "", now)
+		return finish(state.StatusSkipped, errors.New(reason))
 	}
 
 	restoreCtx, cancel := context.WithTimeout(ctx, cfg.DrillTimeout)
@@ -233,6 +241,11 @@ func cmdDrill(ctx context.Context, args []string) error {
 	if level == "db" || level == "full" {
 		dbStarted := time.Now()
 		dumpDir := filepath.Join(target, strings.TrimPrefix(cfg.Backup.Dumps.Dir, string(filepath.Separator)))
+		rel, relErr := filepath.Rel(target, dumpDir)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			report.step("db", state.StatusFailed, "dump directory escapes restore target", "", dbStarted)
+			return finish(state.StatusFailed, fmt.Errorf("drill db: dump directory escapes restore target: %s", dumpDir))
+		}
 		if info, err := os.Stat(dumpDir); err != nil {
 			report.step("db", state.StatusFailed, "dump directory not found: "+dumpDir, "", dbStarted)
 			return finish(state.StatusFailed, fmt.Errorf("drill db: dump directory not found: %s", dumpDir))
@@ -257,6 +270,7 @@ func cmdDrill(ctx context.Context, args []string) error {
 			report.step("cleanup", state.StatusFailed, err.Error(), "", cleanupStarted)
 			return finish(state.StatusFailed, err)
 		}
+		cleaned = true
 		report.step("cleanup", state.StatusSuccess, "removed "+target, "", cleanupStarted)
 	}
 	return finish(state.StatusSuccess, nil)
@@ -308,8 +322,8 @@ func runDrillShell(ctx context.Context, command string, env map[string]string, t
 		extra = append(extra, key+"="+env[key])
 	}
 
-	cmd := exec.CommandContext(runCtx, "/bin/sh", "-c", command)
-	cmd.Env = append(os.Environ(), extra...)
+	cmd := executil.Command(runCtx, "/bin/sh", "-c", command)
+	cmd.Env = append(executil.Environment(), extra...)
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
@@ -319,10 +333,7 @@ func runDrillShell(ctx context.Context, command string, env map[string]string, t
 		return text, fmt.Errorf("drill command timed out after %s", timeout)
 	}
 	if err != nil {
-		if text != "" {
-			return text, fmt.Errorf("%w: %s", err, text)
-		}
-		return text, err
+		return text, fmt.Errorf("drill command failed: %w", err)
 	}
 	return text, nil
 }

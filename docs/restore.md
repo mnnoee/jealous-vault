@@ -30,7 +30,7 @@ sudo jealous-vault restore \
 
 The command restores the whole snapshot filesystem into the target. Paths keep their structure: `/etc/hosts` becomes `/srv/restore/etc/hosts`.
 
-`/srv` is a system directory, so a whole-snapshot restore needs `--yes` even when the target is a subdirectory. The same applies to `/etc`, `/home`, `/var`, `/opt` and other top-level system directories. A restore with `--include` is treated as selective and does not need `--yes`.
+`/srv` is a system directory, so a whole-snapshot restore needs `--yes` even when the target is a subdirectory. The same applies to `/etc`, `/home`, `/var`, `/opt` and other top-level system directories. `--include` narrows what is written, but it does not bypass the target check: a selective restore into `/srv/restore` still needs `--yes`.
 
 Selected paths:
 
@@ -39,7 +39,8 @@ sudo jealous-vault restore \
   --snapshot latest \
   --target /srv/restore \
   --include /etc \
-  --include /var/www
+  --include /var/www \
+  --yes
 ```
 
 Behaviour for existing files:

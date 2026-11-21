@@ -6,6 +6,7 @@ package restic
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -299,7 +300,7 @@ func TestCopyTo(t *testing.T) {
 	argsFile := filepath.Join(dir, "args.log")
 	envFile := filepath.Join(dir, "env.log")
 	script := "#!/bin/sh\nprintf '%s\\n' \"$*\" >> " + argsFile + "\n" +
-		"printf '%s|%s|%s\\n' \"$RESTIC_REPOSITORY\" \"$RESTIC_PASSWORD_FILE\" \"$RESTIC_TEST_SOURCE\" >> " + envFile + "\n"
+		"printf '%s|%s|%s|%s\\n' \"$RESTIC_REPOSITORY\" \"$RESTIC_PASSWORD_FILE\" \"$RESTIC_TEST_SOURCE\" \"$RESTIC_FROM_REPOSITORY\" >> " + envFile + "\n"
 	if err := os.WriteFile(binary, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -319,13 +320,14 @@ func TestCopyTo(t *testing.T) {
 	}
 
 	args, _ := os.ReadFile(argsFile)
-	for _, want := range []string{"copy --from-repo local:/source", "--from-password-file /source.pass"} {
-		if !strings.Contains(string(args), want) {
-			t.Errorf("args %q do not contain %q", args, want)
-		}
+	if strings.Contains(string(args), "local:/source") {
+		t.Errorf("source repository leaked into argv: %q", args)
+	}
+	if !strings.Contains(string(args), "--from-password-file /source.pass") {
+		t.Errorf("args %q do not contain the source password file", args)
 	}
 	env, _ := os.ReadFile(envFile)
-	if strings.TrimSpace(string(env)) != "local:/dest|/dest.pass|" {
+	if strings.TrimSpace(string(env)) != "local:/dest|/dest.pass||local:/source" {
 		t.Fatalf("destination env = %q", env)
 	}
 }
@@ -388,5 +390,21 @@ func TestCopyToPassesCacheDir(t *testing.T) {
 	env, _ := os.ReadFile(envFile)
 	if strings.TrimSpace(string(env)) != "/var/cache/jealous-vault" {
 		t.Fatalf("copy cache dir = %q", env)
+	}
+}
+
+func TestCommandErrorRedactsURLUserinfo(t *testing.T) {
+	client := New(Options{
+		Repository: "s3:https://key:secret@host/bucket",
+		Env:        map[string]string{"AWS_SECRET_ACCESS_KEY": "topsecret"},
+	})
+	err := client.commandError("backup", errors.New("exit status 1"),
+		"failed s3:https://key:secret@host/bucket topsecret")
+	text := err.Error()
+	if strings.Contains(text, "secret") || strings.Contains(text, "topsecret") {
+		t.Fatalf("secret leaked into the error: %s", text)
+	}
+	if !strings.Contains(text, "***@") {
+		t.Fatalf("repository URL was not redacted: %s", text)
 	}
 }

@@ -95,3 +95,26 @@ func TestRecordDoesNotPanicOnBrokenPath(t *testing.T) {
 	logger := Logger{Path: filepath.Join(blocker, "audit.jsonl")}
 	logger.Record(Entry{Action: "restore"})
 }
+
+func TestWriteRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	victim := filepath.Join(dir, "victim")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "audit.jsonl")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+	logger := Logger{Path: link}
+	if err := logger.Write(Entry{Action: "test"}); err == nil {
+		t.Fatal("expected a symlink error")
+	}
+	data, err := os.ReadFile(victim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "keep" {
+		t.Fatalf("symlink target was modified: %q", data)
+	}
+}

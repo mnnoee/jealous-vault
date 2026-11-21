@@ -730,6 +730,7 @@ func cmdRestoreVM(ctx context.Context, args []string) error {
 	configPath := stringFlag(fs, "config", config.DefaultPath, "configuration file")
 	storage := stringFlag(fs, "storage", "", "override proxmox.storage")
 	force := fs.Bool("force", false, "overwrite an existing VM or CT")
+	yes := fs.Bool("yes", false, "confirm a restore into a system directory")
 	targetFlag := stringFlag(fs, "target", "", "directory for the temporary archive restore")
 	keep := fs.Bool("keep", false, "keep the temporary archive directory")
 	verbose := fs.Bool("verbose", false, "debug logging")
@@ -775,16 +776,21 @@ func cmdRestoreVM(ctx context.Context, args []string) error {
 	autoTarget := *targetFlag == ""
 	target := *targetFlag
 	if autoTarget {
-		target = filepath.Join(filepath.Dir(cfg.StateFile), "restore-vm", time.Now().UTC().Format("20060102-150405"))
-	}
-	if err := os.MkdirAll(target, 0o750); err != nil {
-		return err
+		target = restore.TestTarget(filepath.Join(filepath.Dir(cfg.StateFile), "restore-vm"), time.Now())
 	}
 
 	plan, err := restore.New(snapshot.ID, target, []string{cfg.Proxmox.DumpDir}, restore.OverwriteAlways)
 	if err != nil {
 		return err
 	}
+	safeRoot := filepath.Join(filepath.Dir(cfg.StateFile), "restore-vm")
+	if plan.Dangerous(safeRoot) && !*yes {
+		return fmt.Errorf("%w, pass --yes", restore.ErrDangerous)
+	}
+	if err := restore.PrepareScratch(plan.Target, autoTarget); err != nil {
+		return err
+	}
+	target = plan.Target
 	plan.Host = cfg.Host
 	fmt.Printf("restoring dump archive from %s into %s\n", snapshot.ShortID, target)
 	if err := plan.Execute(ctx, client); err != nil {
@@ -1681,20 +1687,6 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 		return finish(state.StatusSkipped, errors.New(reason))
 	}
 
-	if err := os.MkdirAll(target, 0o750); err != nil {
-		return finish(state.StatusFailed, err)
-	}
-	free, err := freeBytes(target)
-	if err != nil {
-		return finish(state.StatusFailed, err)
-	}
-	if reason := verifySkipReason(0, free, 0, minFree); reason != "" {
-		if autoTarget {
-			os.RemoveAll(target)
-		}
-		return finish(state.StatusSkipped, errors.New(reason))
-	}
-
 	plan, err := restore.New(snapshot.ID, target, nil, restore.OverwriteAlways)
 	if err != nil {
 		return finish(state.StatusFailed, err)
@@ -1704,6 +1696,25 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 	safeRoot := filepath.Join(filepath.Dir(cfg.StateFile), "verify")
 	if plan.Dangerous(safeRoot) && !*yes {
 		return finish(state.StatusFailed, fmt.Errorf("%w, pass --yes", restore.ErrDangerous))
+	}
+	target = plan.Target
+	if err := restore.PrepareScratch(target, autoTarget); err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	cleaned := false
+	if autoTarget && !*keep {
+		defer func() {
+			if !cleaned {
+				_ = os.RemoveAll(target)
+			}
+		}()
+	}
+	free, err := freeBytes(target)
+	if err != nil {
+		return finish(state.StatusFailed, err)
+	}
+	if reason := verifySkipReason(0, free, 0, minFree); reason != "" {
+		return finish(state.StatusSkipped, errors.New(reason))
 	}
 
 	fmt.Printf("restoring %s into %s, level %s\n", snapshot.ShortID, target, level)
@@ -1732,6 +1743,7 @@ func cmdTestRestore(ctx context.Context, args []string) error {
 		if err := os.RemoveAll(target); err != nil {
 			fmt.Fprintf(os.Stderr, "jealous-vault: cannot clean up %s: %v\n", target, err)
 		} else {
+			cleaned = true
 			fmt.Printf("cleaned up %s\n", target)
 		}
 	}
@@ -1859,7 +1871,22 @@ func writeStamp(path string, now time.Time) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return os.WriteFile(path, []byte(now.Format(time.RFC3339)+"\n"), 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("%s is not a regular file", path)
+	}
+	if _, err := f.WriteString(now.Format(time.RFC3339) + "\n"); err != nil {
+		return err
+	}
+	return f.Chmod(0o600)
 }
 
 func cmdCheck(ctx context.Context, args []string) error {

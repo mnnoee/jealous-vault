@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Manager collects database dumps in timestamped directories.
@@ -71,7 +71,7 @@ func (m *Manager) Run(ctx context.Context) (string, error) {
 }
 
 func (m *Manager) dumpPostgres(ctx context.Context, dir string, p config.PostgresDump) error {
-	env := os.Environ()
+	env := executil.Environment()
 	if p.PasswordFile != "" {
 		password, err := os.ReadFile(p.PasswordFile)
 		if err != nil {
@@ -104,23 +104,32 @@ func (m *Manager) dumpPostgres(ctx context.Context, dir string, p config.Postgre
 
 func (m *Manager) dumpMySQL(ctx context.Context, dir string, my config.MySQLDump) error {
 	defaults := ""
-	env := os.Environ()
+	env := executil.Environment()
 	if my.PasswordFile != "" {
 		password, err := os.ReadFile(my.PasswordFile)
 		if err != nil {
 			return fmt.Errorf("mysql password: %w", err)
 		}
-		defaults = filepath.Join(dir, ".mysql.cnf")
-		body := "[client]\npassword=\"" + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(strings.TrimSpace(string(password))) + "\"\n"
+		tmp, err := os.MkdirTemp("", "jv-mysql-*")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(tmp)
+		defaults = filepath.Join(tmp, ".mysql.cnf")
+		escaped := strings.NewReplacer(
+			`\`, `\\`,
+			`"`, `\"`,
+			"\n", `\n`,
+			"\r", `\r`,
+		).Replace(strings.TrimSpace(string(password)))
+		body := "[client]\npassword=\"" + escaped + "\"\n"
 		if err := os.WriteFile(defaults, []byte(body), 0o600); err != nil {
 			return err
 		}
-		defer os.Remove(defaults)
-		// The client reads ~/.my.cnf after --defaults-extra-file, so a root
-		// .my.cnf with another password would override ours and break the
-		// dump. Point HOME at the private dump directory: there is no user
-		// option file there, and global option files still apply.
-		env = envWithHome(env, dir)
+		// The client reads ~/.my.cnf after --defaults-extra-file, so point
+		// HOME at the private temp directory. There is no user option file
+		// there, and global option files still apply.
+		env = envWithHome(env, tmp)
 	}
 	for _, database := range my.Databases {
 		file := filepath.Join(dir, "mysql-"+safeName(database)+".sql")
@@ -192,26 +201,26 @@ func (m *Manager) Prune() error {
 }
 
 func runCommand(ctx context.Context, binary string, args, env []string, log *slog.Logger) error {
-	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd := executil.Command(ctx, binary, args...)
 	cmd.Env = env
 	var output bytes.Buffer
 	cmd.Stdout = &output
 	cmd.Stderr = &output
 	err := cmd.Run()
 	if log != nil {
-		log.Debug("dump command", "command", binary, "args", args, "error", err)
+		if text := strings.TrimSpace(output.String()); text != "" {
+			if len(text) > 2048 {
+				text = text[:2048] + "..."
+			}
+			log.Debug("dump output", "command", binary, "output", text, "error", err)
+		} else {
+			log.Debug("dump command", "command", binary, "args", args, "error", err)
+		}
 	}
 	if err == nil {
 		return nil
 	}
-	text := strings.TrimSpace(output.String())
-	if len(text) > 2048 {
-		text = text[:2048] + "..."
-	}
-	if text == "" {
-		return err
-	}
-	return fmt.Errorf("%w: %s", err, text)
+	return fmt.Errorf("%s failed: %w", filepath.Base(binary), err)
 }
 
 // envWithHome replaces HOME in env so the MySQL client cannot read the

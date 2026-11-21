@@ -15,12 +15,12 @@ import (
 	"html/template"
 	"net"
 	"net/smtp"
-	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 //go:embed templates/email_success.html templates/email_failure.html
@@ -98,16 +98,17 @@ func (s *emailSender) Send(ctx context.Context, ev Event) error {
 }
 
 func (s *emailSender) sendLocal(ctx context.Context, message []byte) error {
-	if path, err := exec.LookPath(s.opts.Sendmail); err == nil {
+	if path, err := executil.LookPath(s.opts.Sendmail); err == nil {
 		sendCtx, cancel := context.WithTimeout(ctx, s.opts.Timeout)
 		defer cancel()
-		cmd := exec.CommandContext(sendCtx, path, "-t", "-i")
+		cmd := executil.Command(sendCtx, path, "-t", "-i")
+		cmd.Env = executil.Environment()
 		cmd.Stdin = bytes.NewReader(message)
 		var output bytes.Buffer
 		cmd.Stdout = &output
 		cmd.Stderr = &output
 		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("sendmail: %w: %s", err, strings.TrimSpace(output.String()))
+			return fmt.Errorf("sendmail: %w", err)
 		}
 		return nil
 	}
@@ -121,11 +122,6 @@ func (s *emailSender) sendLocal(ctx context.Context, message []byte) error {
 		return err
 	}
 	defer client.Close()
-	if s.opts.Username != "" {
-		if err := client.Auth(smtp.PlainAuth("", s.opts.Username, s.opts.Password, "localhost")); err != nil {
-			return err
-		}
-	}
 	return s.sendWithClient(client, message)
 }
 
@@ -210,7 +206,7 @@ func (s *emailSender) connect(ctx context.Context) (*smtp.Client, error) {
 // Check verifies that the local MTA or SMTP relay is reachable.
 func (s *emailSender) Check(ctx context.Context) error {
 	if s.opts.Mode == "local" {
-		if _, err := exec.LookPath(s.opts.Sendmail); err == nil {
+		if _, err := executil.LookPath(s.opts.Sendmail); err == nil {
 			return nil
 		}
 		conn, err := (&net.Dialer{Timeout: s.opts.Timeout}).DialContext(ctx, "tcp", "127.0.0.1:25")

@@ -183,8 +183,11 @@ printf '%s' "$HOME" > "$HOME_FILE"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(seen) != runDir {
-		t.Fatalf("dump HOME = %q, want private dump dir %q", seen, runDir)
+	if string(seen) == runDir {
+		t.Fatalf("dump HOME must not be the dump dir %q", runDir)
+	}
+	if strings.Contains(string(seen), runDir) {
+		t.Fatalf("dump HOME = %q is inside the dump dir %q", seen, runDir)
 	}
 	if _, err := os.Stat(filepath.Join(runDir, ".my.cnf")); !os.IsNotExist(err) {
 		t.Error("user option file appeared in the dump directory")

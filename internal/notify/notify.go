@@ -90,7 +90,11 @@ func New(o Options) *Notifier {
 	}
 	client := o.Client
 	if client == nil {
-		client = &http.Client{}
+		client = &http.Client{
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 	}
 	log := o.Logger
 	if log == nil {

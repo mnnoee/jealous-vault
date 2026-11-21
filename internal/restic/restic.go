@@ -17,11 +17,14 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/mnnoee/jealous-vault/internal/executil"
 )
 
 // Options configures a Client.
@@ -102,14 +105,14 @@ func (c *Client) EnvironmentEntries() []string {
 }
 
 func (c *Client) environment() []string {
-	return append(os.Environ(), c.EnvironmentEntries()...)
+	return append(executil.SanitizeEnv(os.Environ()), c.EnvironmentEntries()...)
 }
 
 func (c *Client) command(ctx context.Context, args ...string) *exec.Cmd {
 	all := make([]string, 0, len(c.extra)+len(args))
 	all = append(all, c.extra...)
 	all = append(all, args...)
-	cmd := exec.CommandContext(ctx, c.binary, all...)
+	cmd := executil.Command(ctx, c.binary, all...)
 	// exec.CommandContext kills with SIGKILL by default, which leaves restic
 	// locks behind. Ask restic to shut down cleanly first.
 	cmd.Cancel = func() error {
@@ -245,7 +248,7 @@ func (c *Client) Backup(ctx context.Context, o BackupOptions) (Summary, error) {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return summary, fmt.Errorf("restic backup: %w", ctxErr)
 		}
-		return summary, commandError("backup", waitErr, stderr.String())
+		return summary, c.commandError("backup", waitErr, stderr.String())
 	}
 	if scanErr != nil {
 		return summary, fmt.Errorf("read restic output: %w", scanErr)
@@ -284,7 +287,7 @@ func (c *Client) Snapshots(ctx context.Context, host string) ([]Snapshot, error)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, fmt.Errorf("restic snapshots: %w", ctxErr)
 		}
-		return nil, commandError("snapshots", err, stderr.String())
+		return nil, c.commandError("snapshots", err, stderr.String())
 	}
 
 	data := bytes.TrimSpace(stdout.Bytes())
@@ -347,7 +350,7 @@ func (c *Client) Restore(ctx context.Context, o RestoreOptions) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic restore: %w", ctxErr)
 		}
-		return commandError("restore", err, stderr.String())
+		return c.commandError("restore", err, stderr.String())
 	}
 	return nil
 }
@@ -371,7 +374,7 @@ func (c *Client) Check(ctx context.Context, readDataSubset string) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic check: %w", ctxErr)
 		}
-		return commandError("check", err, stderr.String())
+		return c.commandError("check", err, stderr.String())
 	}
 	return nil
 }
@@ -394,7 +397,7 @@ func (c *Client) Forget(ctx context.Context, policy []string, prune bool) error 
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic forget: %w", ctxErr)
 		}
-		return commandError("forget", err, stderr.String())
+		return c.commandError("forget", err, stderr.String())
 	}
 	return nil
 }
@@ -414,7 +417,7 @@ func (c *Client) Diff(ctx context.Context, first, second string, asJSON bool) er
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic diff: %w", ctxErr)
 		}
-		return commandError("diff", err, stderr.String())
+		return c.commandError("diff", err, stderr.String())
 	}
 	return nil
 }
@@ -435,7 +438,7 @@ func (c *Client) ForgetSnapshot(ctx context.Context, snapshot string, prune bool
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic forget: %w", ctxErr)
 		}
-		return commandError("forget", err, stderr.String())
+		return c.commandError("forget", err, stderr.String())
 	}
 	return nil
 }
@@ -465,14 +468,14 @@ func (c *Client) CopyTo(ctx context.Context, dest CopyDest, snapshots []string, 
 		}
 	}
 
-	args := []string{"copy", "--from-repo", c.repository}
+	args := []string{"copy"}
 	if c.passwordFile != "" {
 		args = append(args, "--from-password-file", c.passwordFile)
 	}
 	args = append(args, snapshots...)
 
-	cmd := exec.CommandContext(ctx, c.binary, args...)
-	cmd.Env = copyEnvironment(dest)
+	cmd := executil.Command(ctx, c.binary, args...)
+	cmd.Env = append(copyEnvironment(dest), "RESTIC_FROM_REPOSITORY="+c.repository)
 	cmd.Stdout = c.out
 	var stderr tailBuffer
 	stderr.max = 64 << 10
@@ -481,26 +484,13 @@ func (c *Client) CopyTo(ctx context.Context, dest CopyDest, snapshots []string, 
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic copy: %w", ctxErr)
 		}
-		return commandError("copy", err, stderr.String())
+		return c.commandError("copy", err, stderr.String())
 	}
 	return nil
 }
 
 func copyEnvironment(dest CopyDest) []string {
-	blocked := map[string]bool{
-		"RESTIC_REPOSITORY":       true,
-		"RESTIC_PASSWORD_FILE":    true,
-		"RESTIC_PASSWORD":         true,
-		"RESTIC_PASSWORD_COMMAND": true,
-	}
-	var env []string
-	for _, entry := range os.Environ() {
-		key, _, _ := strings.Cut(entry, "=")
-		if blocked[key] {
-			continue
-		}
-		env = append(env, entry)
-	}
+	env := executil.SanitizeEnv(os.Environ())
 	env = append(env, "RESTIC_REPOSITORY="+dest.Repository)
 	if dest.PasswordFile != "" {
 		env = append(env, "RESTIC_PASSWORD_FILE="+dest.PasswordFile)
@@ -526,7 +516,7 @@ func (c *Client) Init(ctx context.Context) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return fmt.Errorf("restic init: %w", ctxErr)
 		}
-		return commandError("init", err, stderr.String())
+		return c.commandError("init", err, stderr.String())
 	}
 	return nil
 }
@@ -541,7 +531,7 @@ func (c *Client) Version(ctx context.Context) (string, error) {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return "", commandError("version", err, stderr.String())
+		return "", c.commandError("version", err, stderr.String())
 	}
 	line, _, _ := strings.Cut(strings.TrimSpace(stdout.String()), "\n")
 	return line, nil
@@ -556,7 +546,7 @@ func (c *Client) CheckAccess(ctx context.Context) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return commandError("cat config", err, stderr.String())
+		return c.commandError("cat config", err, stderr.String())
 	}
 	return nil
 }
@@ -570,7 +560,7 @@ func (c *Client) Unlock(ctx context.Context) error {
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return commandError("unlock", err, stderr.String())
+		return c.commandError("unlock", err, stderr.String())
 	}
 	return nil
 }
@@ -584,7 +574,7 @@ func (c *Client) AddKey(ctx context.Context, newPasswordFile string) error {
 	stderr.max = 64 << 10
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return commandError("key add", err, stderr.String())
+		return c.commandError("key add", err, stderr.String())
 	}
 	return nil
 }
@@ -597,7 +587,7 @@ func (c *Client) Keys(ctx context.Context) error {
 	stderr.max = 64 << 10
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return commandError("key list", err, stderr.String())
+		return c.commandError("key list", err, stderr.String())
 	}
 	return nil
 }
@@ -610,7 +600,7 @@ func (c *Client) RemoveKey(ctx context.Context, id string) error {
 	stderr.max = 64 << 10
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
-		return commandError("key remove", err, stderr.String())
+		return c.commandError("key remove", err, stderr.String())
 	}
 	return nil
 }
@@ -647,7 +637,7 @@ func (c *Client) StatsFor(ctx context.Context, snapshot, mode string) (Stats, er
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		return Stats{}, commandError("stats", err, stderr.String())
+		return Stats{}, c.commandError("stats", err, stderr.String())
 	}
 
 	var stats Stats
@@ -683,11 +673,24 @@ func IsLockError(err error) bool {
 		strings.Contains(text, "lock file already exists")
 }
 
-func commandError(command string, err error, stderr string) error {
+var urlUserinfo = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@`)
+
+func (c *Client) redact(text string) string {
+	text = urlUserinfo.ReplaceAllString(text, "$1***@")
+	for _, value := range c.env {
+		if len(value) >= 4 {
+			text = strings.ReplaceAll(text, value, "***")
+		}
+	}
+	return text
+}
+
+func (c *Client) commandError(command string, err error, stderr string) error {
 	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
 		return errors.New("restic is not installed or not found in PATH")
 	}
 	detail := strings.TrimSpace(stderr)
+	detail = c.redact(detail)
 	if detail == "" {
 		return fmt.Errorf("restic %s: %w", command, err)
 	}

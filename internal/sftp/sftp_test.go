@@ -67,6 +67,7 @@ func TestEnsureConfig(t *testing.T) {
 	cfg.Repository.SFTPKeyFile = key
 	cfg.Repository.SFTPConfig = sshConfig
 	cfg.Repository.SFTPKnownHosts = knownHosts
+	cfg.Repository.SFTPAcceptNewHostKey = true
 
 	if err := EnsureConfig(cfg); err != nil {
 		t.Fatal(err)
@@ -142,5 +143,35 @@ func TestResticExtraOptions(t *testing.T) {
 	cfg.Repository.URL = "local:/srv/repo"
 	if cfg.ResticExtraOptions() != nil {
 		t.Fatal("non-sftp repository must not get sftp options")
+	}
+}
+
+func TestEnsureConfigRequiresKnownHosts(t *testing.T) {
+	dir := t.TempDir()
+	key := filepath.Join(dir, "ssh_key")
+	if err := os.WriteFile(key, []byte("key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Default()
+	cfg.Repository.URL = "sftp:backup@host:/srv/backup"
+	cfg.Repository.SFTPKeyFile = key
+	cfg.Repository.SFTPConfig = filepath.Join(dir, "ssh_config")
+	cfg.Repository.SFTPKnownHosts = filepath.Join(dir, "known_hosts")
+
+	if err := EnsureConfig(cfg); err == nil {
+		t.Fatal("expected missing known_hosts to fail closed")
+	}
+	if err := os.WriteFile(cfg.Repository.SFTPKnownHosts, []byte("host ssh-ed25519 AAAA\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(cfg.Repository.SFTPConfig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "StrictHostKeyChecking yes") {
+		t.Fatalf("expected StrictHostKeyChecking yes, got:\n%s", body)
 	}
 }

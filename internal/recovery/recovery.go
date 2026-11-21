@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/mnnoee/jealous-vault/internal/config"
@@ -21,23 +22,14 @@ func Write(cfg *config.Config, output string, force bool, version string) error 
 	if output == "" {
 		return errors.New("output path is required")
 	}
-	flags := os.O_WRONLY | os.O_CREATE
-	if force {
-		flags |= os.O_TRUNC
-	} else {
-		flags |= os.O_EXCL
-	}
-	if err := os.MkdirAll(filepath.Dir(output), 0o750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(output), 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(output, flags, 0o600)
+	f, err := openSecret(output, force)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	if err := f.Chmod(0o600); err != nil {
-		return err
-	}
 
 	var password string
 	if cfg.Repository.PasswordFile != "" {
@@ -94,6 +86,54 @@ func Write(cfg *config.Config, output string, force bool, version string) error 
 		return err
 	}
 	return f.Sync()
+}
+
+func openSecret(path string, force bool) (*os.File, error) {
+	flags := os.O_WRONLY | os.O_CREATE | syscall.O_NOFOLLOW
+	if force {
+		info, err := os.Lstat(path)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return nil, fmt.Errorf("refusing to overwrite symlink %s", path)
+			}
+			if !info.Mode().IsRegular() {
+				return nil, fmt.Errorf("refusing to overwrite non-regular file %s", path)
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		flags |= os.O_TRUNC
+	} else {
+		flags |= os.O_EXCL
+	}
+	f, err := os.OpenFile(path, flags, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		f.Close()
+		return nil, fmt.Errorf("%s is not a regular file", path)
+	}
+	if st, ok := info.Sys().(*syscall.Stat_t); ok {
+		if int(st.Uid) != os.Geteuid() {
+			f.Close()
+			return nil, fmt.Errorf("%s is owned by uid %d, expected %d", path, st.Uid, os.Geteuid())
+		}
+		if st.Nlink != 1 {
+			f.Close()
+			return nil, fmt.Errorf("%s has %d links, expected 1", path, st.Nlink)
+		}
+	}
+	if err := f.Chmod(0o600); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return f, nil
 }
 
 func readSecret(path string) (string, error) {

@@ -81,14 +81,17 @@ type Config struct {
 
 // Repo describes the restic repository and its credentials.
 type Repo struct {
-	URL            string            `toml:"url"`
-	PasswordFile   string            `toml:"password_file"`
-	EnvFile        string            `toml:"env_file"`
-	CacheDir       string            `toml:"cache_dir"`
-	SFTPKeyFile    string            `toml:"sftp_key_file"`
-	SFTPKnownHosts string            `toml:"sftp_known_hosts"`
-	SFTPConfig     string            `toml:"sftp_config"`
-	Env            map[string]string `toml:"env"`
+	URL            string `toml:"url"`
+	PasswordFile   string `toml:"password_file"`
+	EnvFile        string `toml:"env_file"`
+	CacheDir       string `toml:"cache_dir"`
+	SFTPKeyFile    string `toml:"sftp_key_file"`
+	SFTPKnownHosts string `toml:"sftp_known_hosts"`
+	SFTPConfig     string `toml:"sftp_config"`
+	// SFTPAcceptNewHostKey trusts an unknown host key on first use. It is
+	// off by default; pre-populate known_hosts instead.
+	SFTPAcceptNewHostKey bool              `toml:"sftp_accept_new_host_key"`
+	Env                  map[string]string `toml:"env"`
 }
 
 // Backup describes what to copy and how.
@@ -714,6 +717,26 @@ func (c *Config) Validate() error {
 		if item.path != "" && !filepath.IsAbs(item.path) {
 			return fmt.Errorf("%s %q must be absolute", item.key, item.path)
 		}
+		if item.path != "" {
+			if err := rejectControl(item.key, item.path); err != nil {
+				return err
+			}
+		}
+	}
+	for _, item := range []struct {
+		key  string
+		path string
+	}{
+		{"repository.sftp_key_file", c.Repository.SFTPKeyFile},
+		{"repository.sftp_known_hosts", c.Repository.SFTPKnownHosts},
+		{"repository.sftp_config", c.Repository.SFTPConfig},
+	} {
+		if err := rejectSFTPPath(item.key, item.path); err != nil {
+			return err
+		}
+	}
+	if err := validateBinary("restic_binary", c.ResticBinary); err != nil {
+		return err
 	}
 	if c.Retention.KeepWithin != "" && strings.ContainsAny(c.Retention.KeepWithin, " \t\n") {
 		return errors.New("retention.keep_within must not contain whitespace")
@@ -741,6 +764,18 @@ func (c *Config) Validate() error {
 	}
 	if c.Schedule.OnCalendar == "" {
 		return errors.New("schedule.on_calendar is empty")
+	}
+	for key, value := range map[string]string{
+		"schedule.on_calendar": c.Schedule.OnCalendar,
+		"freshness.schedule":   c.Freshness.Schedule,
+		"verify.schedule":      c.Verify.Schedule,
+		"drill.schedule":       c.Drill.Schedule,
+		"proxmox.schedule":     c.Proxmox.Schedule,
+		"copy.schedule":        c.Copy.Schedule,
+	} {
+		if err := rejectControl(key, value); err != nil {
+			return err
+		}
 	}
 	if c.RandomizedDelay < 0 {
 		return errors.New("schedule.randomized_delay must not be negative")
@@ -785,6 +820,12 @@ func (c *Config) Validate() error {
 	if c.Drill.Target != "" && !filepath.IsAbs(c.Drill.Target) {
 		return fmt.Errorf("drill.target %q must be absolute", c.Drill.Target)
 	}
+	if err := rejectControl("drill.target", c.Drill.Target); err != nil {
+		return err
+	}
+	if err := rejectDotDot("drill.target", c.Drill.Target); err != nil {
+		return err
+	}
 	if c.DrillMaxSize <= 0 {
 		return errors.New("drill.max_size must be positive")
 	}
@@ -812,6 +853,12 @@ func (c *Config) Validate() error {
 	}
 	if !filepath.IsAbs(c.Proxmox.DumpDir) {
 		return fmt.Errorf("proxmox.dump_dir %q must be absolute", c.Proxmox.DumpDir)
+	}
+	if err := rejectControl("proxmox.dump_dir", c.Proxmox.DumpDir); err != nil {
+		return err
+	}
+	if err := rejectDotDot("proxmox.dump_dir", c.Proxmox.DumpDir); err != nil {
+		return err
 	}
 	if c.Proxmox.KeepLast < 0 {
 		return errors.New("proxmox.keep_last must not be negative")
@@ -956,6 +1003,12 @@ func validateDumps(d *DumpOptions) error {
 	if d.Dir != "" && !filepath.IsAbs(d.Dir) {
 		return fmt.Errorf("backup.dumps.dir %q must be absolute", d.Dir)
 	}
+	if err := rejectControl("backup.dumps.dir", d.Dir); err != nil {
+		return err
+	}
+	if err := rejectDotDot("backup.dumps.dir", d.Dir); err != nil {
+		return err
+	}
 	if d.Keep < 0 {
 		return errors.New("backup.dumps.keep must not be negative")
 	}
@@ -996,6 +1049,52 @@ func validateDumpTarget(name string, databases []string, port int, passwordFile,
 	}
 	if binary == "" {
 		return fmt.Errorf("backup.dumps.%s.binary is empty", name)
+	}
+	if err := validateBinary("backup.dumps."+name+".binary", binary); err != nil {
+		return err
+	}
+	return nil
+}
+
+func rejectControl(key, value string) error {
+	for _, r := range value {
+		if r == '\n' || r == '\r' || r == 0 {
+			return fmt.Errorf("%s must not contain control characters", key)
+		}
+	}
+	return nil
+}
+
+func rejectDotDot(key, value string) error {
+	for _, part := range strings.Split(filepath.ToSlash(value), "/") {
+		if part == ".." {
+			return fmt.Errorf("%s must not contain '..'", key)
+		}
+	}
+	return nil
+}
+
+func rejectSFTPPath(key, value string) error {
+	for _, r := range value {
+		if r <= ' ' || r == 0x7f {
+			return fmt.Errorf("%s must not contain whitespace or control characters", key)
+		}
+	}
+	return nil
+}
+
+func validateBinary(key, value string) error {
+	if value == "" {
+		return nil
+	}
+	if err := rejectControl(key, value); err != nil {
+		return err
+	}
+	if strings.ContainsAny(value, " \t") {
+		return fmt.Errorf("%s must not contain whitespace", key)
+	}
+	if strings.Contains(value, "/") && !filepath.IsAbs(value) {
+		return fmt.Errorf("%s %q must be absolute or a bare command name", key, value)
 	}
 	return nil
 }
