@@ -18,10 +18,10 @@
 | `SHA256SUMS`                        | контрольные суммы                  |
 | `SHA256SUMS.sig`                    | отсоединённая подпись `SHA256SUMS` |
 
-Подпись проверяется ключом из `build/allowed_signers` в репозитории. Пример для тега `0.1.1`:
+Подпись проверяется ключом из `build/allowed_signers` в репозитории. Пример для тега `0.1.2`:
 
 ```sh
-VERSION=0.1.1
+VERSION=0.1.2
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 mkdir jv-release && cd jv-release
@@ -70,7 +70,7 @@ Forgejo release workflow собирает `jealous-vault_<version>_amd64.deb` и
 
 ```sh
 sudo apt-get install restic
-sudo dpkg -i jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i jealous-vault_0.1.2_amd64.deb
 sudo apt-get install -f
 
 sudo jealous-vault init \

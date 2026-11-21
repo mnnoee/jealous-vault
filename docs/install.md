@@ -18,10 +18,10 @@ A release contains:
 | `SHA256SUMS`                        | checksums                     |
 | `SHA256SUMS.sig`                    | detached signature            |
 
-The signature is verified with `build/allowed_signers` from the repository. For tag `0.1.1`:
+The signature is verified with `build/allowed_signers` from the repository. For tag `0.1.2`:
 
 ```sh
-VERSION=0.1.1
+VERSION=0.1.2
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 mkdir jv-release && cd jv-release
@@ -70,7 +70,7 @@ The Forgejo release workflow builds `jealous-vault_<version>_amd64.deb` and `jea
 
 ```sh
 sudo apt-get install restic
-sudo dpkg -i jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i jealous-vault_0.1.2_amd64.deb
 sudo apt-get install -f
 
 sudo jealous-vault init \

@@ -52,7 +52,7 @@ restic handles encryption, deduplication and repository format. It still leaves 
 ## Quick start
 
 ```sh
-VERSION=0.1.1
+VERSION=0.1.2
 BASE="https://jealousmoon.com/projects/vault/releases/download/$VERSION"
 
 curl -fLO "$BASE/jealous-vault-linux-amd64"

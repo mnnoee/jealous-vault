@@ -15,7 +15,7 @@ Static binaries for `linux/amd64` and `linux/arm64`, no cgo. Tested:
 - Artix (OpenRC and s6);
 - Void, Devuan, Alma, Rocky, openSUSE, Gentoo in the LXC matrix.
 
-You need restic 0.18.x or 0.19.x. If the version is newer, `doctor` shows a warning, but backup keeps working.
+You need restic 0.18.x or 0.19.x. If the version is newer, `doctor` shows a warning, but backup keeps working. Restore, drill and test-restore refuse a series older than 0.18.
 
 Schedulers:
 

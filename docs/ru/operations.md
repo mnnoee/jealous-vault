@@ -251,4 +251,6 @@ jealous-vault snapshots --all
 - `doctor` после изменений конфига;
 - `systemctl list-units --failed`.
 
+Чувствительный вывод хуков, дампов БД и stderr restic по умолчанию скрыт; в логе указывается, сколько байт скрыто. Включайте `[logging] show_sensitive = true` только если verbose-логи хранятся в доверенном месте.
+
 Метрик Prometheus и JSON-логов пока нет; `--json` есть у большинства команд.

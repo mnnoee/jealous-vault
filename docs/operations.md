@@ -251,4 +251,6 @@ Minimum set:
 - `doctor` after config changes;
 - `systemctl list-units --failed`.
 
+Sensitive output from hooks, database dumps and restic stderr is hidden by default; the log reports how many bytes were hidden. Set `[logging] show_sensitive = true` only when verbose logs are stored in a trusted place.
+
 Prometheus metrics and JSON logs are not available yet; most commands support `--json`.

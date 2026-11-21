@@ -4,6 +4,8 @@ English · [Русский](ru/restore.md)
 
 This section covers returning data without overwriting the wrong directory.
 
+Restore, drill and test-restore require restic 0.18 or newer; an older series is refused before anything is written.
+
 ## Snapshots
 
 ```sh

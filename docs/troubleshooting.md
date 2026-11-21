@@ -155,3 +155,9 @@ systemctl reset-failed jealous-vault-backup.service
 
 - Termux: see [platforms-and-limits.md](platforms-and-limits.md); check `tick.log`, time/UTC, JobScheduler and access to `/storage/emulated/0`.
 - NixOS: works manually; no package/module yet and none planned for the near future.
+
+## Email and SMTP
+
+`doctor --send-test-email` sends one test message. The `Host` field in it is the agent host: the top-level `host` value, or `os.Hostname()` when `host` is empty. It is not the SMTP or MX host.
+
+`[notify.email].host` is the SMTP relay or submission endpoint. The client connects to it directly; MX lookup belongs to the MTA. `mode = "local"` prefers sendmail and otherwise uses the configured `host`/`port`, falling back to `127.0.0.1:25`. Use `security = "none"` only for an isolated test server; production should use `tls` or `starttls` with a password file.

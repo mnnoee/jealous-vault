@@ -6,7 +6,7 @@
 
 Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), проект следует [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Контракт совместимости - в [STABILITY.ru.md](STABILITY.ru.md).
 
-## [Unreleased]
+## [0.1.2] - 2026-11-22
 
 ### Добавлено
 
@@ -14,6 +14,15 @@
 - Конфигурация `[drill]` с `enabled = false` по умолчанию. Регулярные drill - opt-in; при включении `install` создаёт systemd-таймер, cron-запись или weekly-задание OpenRC.
 - `docs/DRILL.md` и `docs/ru/DRILL.md`, плюс рецепты PostgreSQL/MySQL scratch-базы в `docs/restore.md`. `status` теперь показывает `last drill`.
 - Дополнения формата state: `last_drill`, `level` и `details` для drill-запусков.
+- `[logging] show_sensitive = false` скрывает вывод хуков/дампов/restic по умолчанию; `true` печатает его в verbose-логах.
+- `repository.sftp_accept_new_host_key = true` включает trust-on-first-use для SFTP; по умолчанию требуется `known_hosts` (fail-closed).
+- Drill-restore передаёт `--retry-lock 30m`, чтобы переживать лок с другого хоста.
+
+### Изменено
+
+- `restore`, `drill` и `test-restore` требуют restic `>= 0.18`; для backup/check более новые серии по-прежнему дают предупреждение в `doctor`.
+- SFTP без `known_hosts` теперь падает fail-closed, а не доверяет первому ключу молча.
+- `notify.email.mode = "local"` учитывает заданные `host`/`port`; localhost-дефолты применяются только если они не заданы.
 
 ### Исправлено
 

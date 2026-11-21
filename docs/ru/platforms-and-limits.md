@@ -15,7 +15,7 @@
 - Artix (OpenRC и s6);
 - Void, Devuan, Alma, Rocky, openSUSE, Gentoo - в матрице LXC.
 
-Нужен restic 0.18.x или 0.19.x. Если версия новее, `doctor` покажет предупреждение, но backup продолжит работать.
+Нужен restic 0.18.x или 0.19.x. Если версия новее, `doctor` покажет предупреждение, но backup продолжит работать. Restore, drill и test-restore отказываются работать с серией старше 0.18.
 
 Планировщики:
 

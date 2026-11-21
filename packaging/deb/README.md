@@ -7,8 +7,8 @@ The package installs `/usr/bin/jealous-vault` and its documentation. It does **n
 ## Build
 
 ```sh
-./build/deb.sh 0.1.1 amd64 dist/jealous-vault-linux-amd64
-./build/deb.sh 0.1.1 arm64 dist/jealous-vault-linux-arm64
+./build/deb.sh 0.1.2 amd64 dist/jealous-vault-linux-amd64
+./build/deb.sh 0.1.2 arm64 dist/jealous-vault-linux-arm64
 ```
 
 The script uses `dpkg-deb` and needs the matching Linux binary in `dist/`. It runs in the Forgejo CI after the normal build.
@@ -17,7 +17,7 @@ The script uses `dpkg-deb` and needs the matching Linux binary in `dist/`. It ru
 
 ```sh
 sudo apt-get install restic
-sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i dist/jealous-vault_0.1.2_amd64.deb
 sudo apt-get install -f
 ```
 
@@ -37,7 +37,7 @@ sudo jealous-vault doctor
 ## Upgrade
 
 ```sh
-sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i dist/jealous-vault_0.1.2_amd64.deb
 ```
 
 The config, state, repository password and installed units are not touched. Check the new version with `jealous-vault version`, then run `jealous-vault doctor`.

@@ -6,7 +6,7 @@ All notable changes to JealousVault are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). The compatibility contract is in [STABILITY.md](STABILITY.md).
 
-## [Unreleased]
+## [0.1.2] - 2026-11-22
 
 ### Added
 
@@ -14,6 +14,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - `[drill]` configuration with `enabled = false` by default. Scheduled drills are opt-in; when enabled, `install` creates a systemd timer, cron entry or OpenRC weekly job.
 - `docs/DRILL.md` and `docs/ru/DRILL.md`, plus PostgreSQL/MySQL scratch database recipes in `docs/restore.md`. `status` now shows `last drill`.
 - State format additions: `last_drill`, `level` and `details` on drill runs.
+- `[logging] show_sensitive = false` hides hook/dump/restic output by default; setting it to `true` prints that output in verbose logs.
+- `repository.sftp_accept_new_host_key = true` opts into trust-on-first-use for SFTP; the default is fail-closed with `known_hosts`.
+- Drill restores pass `--retry-lock 30m`, so a lock from another host is waited out.
+
+### Changed
+
+- `restore`, `drill` and `test-restore` require restic `>= 0.18`; newer restic series still warn in `doctor` for backup and check.
+- SFTP without `known_hosts` now fails closed instead of silently trusting the first host key.
+- `notify.email.mode = "local"` honors a configured `host`/`port`; the localhost defaults apply only when they are unset.
 
 ### Fixed
 

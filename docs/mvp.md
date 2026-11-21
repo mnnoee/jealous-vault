@@ -2,7 +2,7 @@
 
 English · [Русский](ru/mvp.md)
 
-Status: planning document, last updated 2026-11-20. It describes the target, not what `0.1.1` already does. Current features are in [README.md](../README.md); tested limits are in [platforms-and-limits.md](platforms-and-limits.md).
+Status: planning document, last updated 2026-11-22. It describes the target, not what `0.1.2` already does. Current features are in [README.md](../README.md); tested limits are in [platforms-and-limits.md](platforms-and-limits.md).
 
 ## Product frame
 
@@ -87,10 +87,10 @@ The path must be polished. Five backends working a little are worse than one bac
 
 ### Current state against the criteria
 
-| Criterion               | In 0.1.1                                                             | Gap                                              |
+| Criterion               | In 0.1.2                                                             | Gap                                              |
 | ----------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
-| Golden path             | Works manually on real hosts, S3 and PostgreSQL                      | Not packaged; not a single verified install path |
-| Restore test in CI      | Unit tests use a fake restic; restores were verified manually in LXC | No real-restic restore job in CI                 |
+| Golden path             | Works manually and with `.deb` packages on real hosts, S3 and PostgreSQL | No `rpm`/`AUR`; no single path for every distro |
+| Restore test in CI      | Unit tests use a fake restic; drill/test-restore cover the path; real restic was verified manually in LXC | No real-restic restore job in CI |
 | One-command install     | Binary asset, `jealous-vault install`, and a `.deb` package          | No `rpm`/`AUR` package                           |
 | Versioned config schema | Strict TOML, unknown keys rejected                                   | No schema version, no `config migrate`           |
 | Manual escape hatch     | `export-restic-env` prints variables, commands and dump handling     | Covered                                          |

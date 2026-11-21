@@ -7,8 +7,8 @@
 ## Сборка
 
 ```sh
-./build/deb.sh 0.1.1 amd64 dist/jealous-vault-linux-amd64
-./build/deb.sh 0.1.1 arm64 dist/jealous-vault-linux-arm64
+./build/deb.sh 0.1.2 amd64 dist/jealous-vault-linux-amd64
+./build/deb.sh 0.1.2 arm64 dist/jealous-vault-linux-arm64
 ```
 
 Скрипт использует `dpkg-deb` и требует соответствующий Linux-бинарник в `dist/`. В Forgejo CI он запускается после обычной сборки.
@@ -17,7 +17,7 @@
 
 ```sh
 sudo apt-get install restic
-sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i dist/jealous-vault_0.1.2_amd64.deb
 sudo apt-get install -f
 ```
 
@@ -37,7 +37,7 @@ sudo jealous-vault doctor
 ## Обновление
 
 ```sh
-sudo dpkg -i dist/jealous-vault_0.1.1_amd64.deb
+sudo dpkg -i dist/jealous-vault_0.1.2_amd64.deb
 ```
 
 Конфиг, state, пароль репозитория и установленные юниты не затрагиваются. Проверьте версию через `jealous-vault version`, затем запустите `jealous-vault doctor`.

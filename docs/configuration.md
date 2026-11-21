@@ -39,7 +39,7 @@ randomized_delay = "1h"
 
 | Key             | Default                              | Meaning                          |
 | --------------- | ------------------------------------ | -------------------------------- |
-| `host`          | hostname                             | host name in snapshots           |
+| `host`          | hostname                             | host name in snapshots and messages |
 | `job`           | `default`                            | job name, `[a-z0-9][a-z0-9_-]*`  |
 | `state_file`    | `/var/lib/jealous-vault/state.json`  | last result                      |
 | `history_file`  | next to state                        | JSONL history                    |
@@ -49,6 +49,8 @@ randomized_delay = "1h"
 | `restic_binary` | `restic`                             | restic path/name                 |
 
 For jobs `db`, `usr` or `opt`, the agent places default paths under `/var/lib/jealous-vault/<job>/` so jobs do not collide. You can set them explicitly.
+
+If `host` is empty, the agent uses `os.Hostname()`. The same value is written to snapshots, alerts, test emails and the `Message-ID` domain; set `host` to use a stable label instead.
 
 ## `[repository]`
 
